@@ -4,7 +4,7 @@ local Http = game:GetService("HttpService")
 local TweenService = game:GetService("TweenService")
 local RunService = game:GetService("RunService")
 
-local Library = {Version = "1.4.5", _windows = {}, _sessionFiles = {}}
+local Library = {Version = "1.5.0", _windows = {}, _sessionFiles = {}}
 local Base, Window, Tab, Section, Control = {}, {}, {}, {}, {}
 Base.__index = Base
 for _, class in ipairs({Window, Tab, Section, Control}) do
@@ -504,7 +504,7 @@ function Library:New(options)
     w._viewport=viewport
     local title = text(w,w.container,options.Name or "JLXUI",{Size=UDim2.new(0,110,0,38),TextSize=14,Font=Enum.Font.GothamBold,TextYAlignment=Enum.TextYAlignment.Center})
     title.Active = true
-    local version = text(w,w.container,options.Version or "v1.4.5",{Size=UDim2.new(0,54,0,38),Position=UDim2.new(0,0,0,0),
+    local version = text(w,w.container,options.Version or ("v" .. Library.Version),{Size=UDim2.new(0,54,0,38),Position=UDim2.new(0,0,0,0),
         TextColor3=role("TextSub"),TextSize=10,TextYAlignment=Enum.TextYAlignment.Center})
     w.VersionLabel = version
     connect(w,title:GetPropertyChangedSignal("TextBounds"),function()
@@ -645,6 +645,7 @@ function Library:New(options)
     self._windows[id], self._last = w, w
     if options.Configuration ~= false then w:_BuildConfiguration() end
     w:_RefreshHotkeys()
+    w:SetAcrylic(options.Acrylic==true)
     w.container.GroupTransparency=1
     animate(w,w.container,{GroupTransparency=0},0.28,"visibility")
     return w
@@ -652,6 +653,7 @@ end
 function Window:SetVisible(visible)
     alive(self)
     self._shown = visible == true
+    if self._acrylicBlur then self._acrylicBlur.Enabled=self.Acrylic and self._shown end
     self._restore.Visible = not self._shown
     if self._shown then self.container.Visible=true end
     animate(self,self.container,{GroupTransparency=self._shown and 0 or 1},0.24,"visibility",function()
@@ -662,6 +664,16 @@ function Window:SetVisible(visible)
     releaseHolds(self)
 end
 function Window:ToggleUI() self:SetVisible(not self._shown) end
+function Window:SetAcrylic(enabled)
+    alive(self)
+    self.Acrylic=enabled==true
+    if self.Acrylic and not self._acrylicBlur then
+        self._acrylicBlur=make(self,"BlurEffect",game:GetService("Lighting"),{Name="JLXUI_Acrylic",Size=12,Enabled=false})
+    end
+    if self._acrylicBlur then self._acrylicBlur.Enabled=self.Acrylic and self._shown end
+    self.container.BackgroundTransparency=self.Acrylic and math.max(0.22,self.BackgroundTransparency or 0) or (self.BackgroundTransparency or 0)
+    if self._configControls and self._configControls.Acrylic then self._configControls.Acrylic:Set(self.Acrylic,true) end
+end
 
 Library.Icons = {
     Home="rbxassetid://7733960981", Eye="rbxassetid://7733774602",
@@ -876,8 +888,8 @@ function Section:Button(title, callback)
     c._title.Visible=false
     local b = text(c,c.container,title,{Size=UDim2.new(1,-20,0,30),Position=UDim2.new(0,10,0.5,-15),TextXAlignment=Enum.TextXAlignment.Center,BackgroundTransparency=0,BackgroundColor3=role("Elevated"),TextSize=11},"TextButton")
     round(c,b,5); stroke(c,b,role("StrokeDim"))
-    connect(c,b.MouseEnter,function() animate(c,b,{BackgroundColor3=role("CardHover")},0.16,"button") end)
-    connect(c,b.MouseLeave,function() animate(c,b,{BackgroundColor3=role("Elevated")},0.22,"button") end)
+    connect(c,b.MouseEnter,function() animate(c,b,{BackgroundColor3=c.HoverColor or role("CardHover")},0.16,"button") end)
+    connect(c,b.MouseLeave,function() animate(c,b,{BackgroundColor3=c.ButtonColor or role("Elevated")},0.22,"button") end)
     c.button=b
     connect(c,b.Activated,function() c:Press() end)
     return c
@@ -897,6 +909,7 @@ function Section:Toggle(title, default, flag, callback, key)
     local hit=text(c,c.container,"",{Size=UDim2.new(1,-90,1,0),Position=UDim2.new()},"TextButton")
     local switchHit=text(c,c.container,"",{Size=UDim2.new(0,46,1,0),Position=UDim2.new(1,-46,0,0)},"TextButton")
     c._hit=hit
+    c._switchHit=switchHit
     c._set=function(control,value,silent)
         assert(type(value)=="boolean","JLXUI: Toggle:Set expects a boolean")
         local seconds=silent and 0 or 0.22
@@ -1332,18 +1345,40 @@ function Section:CollapsibleToggle(title,default,flag,callback,key)
     return group
 end
 function Section:CheckboxToggle(title,default,flag,callback,key)
-    local group=self:CollapsibleToggle(title,default,flag,callback,key)
-    local toggle=group.ToggleControl
-    if toggle._pill then toggle._pill.Size=UDim2.new(0,20,0,20); toggle._pill.Position=UDim2.new(1,-30,0.5,-10); property(toggle,toggle._pill,"BackgroundColor3",role("Elevated")) end
-    if toggle._knob then toggle._knob.Size=UDim2.new(0,16,0,16); toggle._knob.Position=UDim2.new(0,2,0.5,-8); property(toggle,toggle._knob,"BackgroundColor3",role("TextSub")); round(toggle,toggle._knob,4) end
-    if toggle._set then
-        local old=toggle._set
-        toggle._set=function(control,value,silent)
-            old(control,value,silent)
-            if control._knob then property(control,control._knob,"BackgroundColor3",role(value and "Accent" or "TextSub")) end
-        end
-        toggle:Set(default==true,true)
+    local toggle=self:Toggle(title,default,flag,callback,key)
+    cancelAnimations(toggle)
+    toggle._pill.Visible=false
+    toggle._switchHit.Visible=false
+    toggle._title.Position=UDim2.new(0,40,0,0)
+    toggle._title.Size=UDim2.new(1,-110,1,0)
+    toggle._inlineBind._button.Position=UDim2.new(1,-56,0.5,-12)
+    toggle._hit.Size=UDim2.new(1,-64,1,0)
+    local box=make(toggle,"Frame",toggle.container,{Name="Checkbox",Size=UDim2.new(0,20,0,20),Position=UDim2.new(0,10,0.5,-10),BorderSizePixel=0,BackgroundColor3=role("Elevated")})
+    round(toggle,box,4)
+    local check=make(toggle,"Frame",box,{Name="Checkmark",Size=UDim2.new(0,14,0,14),Position=UDim2.new(0,3,0,3),BackgroundTransparency=1})
+    make(toggle,"Frame",check,{Size=UDim2.new(0,6,0,2),Position=UDim2.new(0,1,0,7),Rotation=45,BorderSizePixel=0,BackgroundColor3=role("Bg")})
+    make(toggle,"Frame",check,{Size=UDim2.new(0,10,0,2),Position=UDim2.new(0,4,0,6),Rotation=-45,BorderSizePixel=0,BackgroundColor3=role("Bg")})
+    toggle._checkbox=box; toggle._checkmark=check
+    toggle._set=function(control,value,silent)
+        assert(type(value)=="boolean","JLXUI: checkbox expects boolean")
+        check.Visible=value
+        animate(control,box,{BackgroundColor3=role(value and "Text" or "Elevated")},silent and 0 or 0.18,"check")
+        publish(control,value,silent)
     end
+    toggle:Set(default==true,true)
+    return toggle
+end
+function Section:CheckboxDropdown(title,default,flag,callback,key)
+    local group=self:CollapsibleGroup(title,false)
+    group._header.Visible=false
+    local toggle=group:CheckboxToggle(title,default,flag,callback,key)
+    group.ToggleControl=toggle
+    toggle.container.Parent=group.container; toggle.container.LayoutOrder=0
+    toggle._hit.Size=UDim2.new(0,36,1,0)
+    local expand=text(toggle,toggle.container,"",{Position=UDim2.new(0,36,0,0),Size=UDim2.new(1,-140,1,0)},"TextButton")
+    local arrow=text(toggle,toggle.container,">",{Position=UDim2.new(1,-98,0,0),Size=UDim2.new(0,20,1,0),TextXAlignment=Enum.TextXAlignment.Center,Font=Enum.Font.Gotham})
+    group._extraArrow=arrow
+    connect(toggle,expand.Activated,function() group:Expand() end)
     return group
 end
 Section.MasterToggle=Section.CheckboxToggle
@@ -1559,6 +1594,8 @@ function Window:_BuildConfiguration()
     action(function() refresh(); return "Ready" end)
 
     local appearance=tab:Section("Appearance")
+    controls.Acrylic=appearance:Toggle("Acrylic (world blur)",false,nil,function(value) self:SetAcrylic(value) end)
+    appearance:Label("Acrylic adds translucent glass and blurs the whole 3D view.")
     local names={"Default","Old","Neverlose","Cyberpunk","Vampire","Sakura","Emerald","Aquamarine","Primordial","Skeet"}
     controls.Theme=appearance:Dropdown("Theme",names,self.ThemeName,nil,function(value) self:SetTheme(value) end)
     local colors=appearance:CollapsibleGroup("Custom colors",false)
@@ -1569,7 +1606,7 @@ function Window:_BuildConfiguration()
     controls.Scale=appearance:Slider("UI scale",self.UserScale,1.25,0.65,0.05,nil,function(value) self:SetScale(value) end)
     controls.Transparency=appearance:Slider("Background transparency",0,0.8,0,0.05,nil,function(value)
         self.BackgroundTransparency=value
-        self.container.BackgroundTransparency=value
+        self:SetAcrylic(self.Acrylic)
     end)
 
     local settings=tab:Section("Interface")
@@ -1589,7 +1626,9 @@ function Window:_BuildConfiguration()
     settings:Button("Destroy UI",function() self:Destroy() end)
     local maintenance=tab:Section("Maintenance & Exit")
     local reset=maintenance:Button("Reset to default settings",function() self:SetTheme("Default"); self:SetScale(1); self.NotificationsEnabled=true end)
-    if reset.button then reset.button.BackgroundColor3=Color3.fromRGB(239,68,68); reset.button.Text="RESET TO DEFAULT SETTINGS" end
+    reset.ButtonColor=Color3.fromRGB(239,68,68)
+    reset.HoverColor=Color3.fromRGB(255,88,88)
+    if reset.button then property(reset,reset.button,"BackgroundColor3",reset.ButtonColor); reset.button.Text="RESET TO DEFAULT SETTINGS" end
     local unload=maintenance:Button("Unload script & destroy UI",function() self:Destroy() end)
     if unload.button then unload.button.Text="UNLOAD SCRIPT & DESTROY UI" end
 end
@@ -1610,7 +1649,7 @@ function Window:ExportConfig()
     end
     return Http:JSONEncode({version=1,values=values,ui={theme=self.ThemeName,colors=colors,
         toggleKey=self.ToggleKey.Name,scale=self.UserScale,transparency=self.BackgroundTransparency,
-        notifications=self.NotificationsEnabled,duration=self.NotificationDuration,animations=self.Animations}})
+        notifications=self.NotificationsEnabled,duration=self.NotificationDuration,animations=self.Animations,acrylic=self.Acrylic}})
 end
 function Window:ImportConfig(json, silent)
     alive(self)
@@ -1650,6 +1689,7 @@ function Window:ImportConfig(json, silent)
                 self:SetAnimations(ui.animations)
             end
             self:_ApplyTheme()
+            if ui.acrylic~=nil then self:SetAcrylic(ui.acrylic==true) end
         end)
         if not ok then errors[#errors+1]="Interface: " .. tostring(err) end
     end
