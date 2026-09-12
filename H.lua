@@ -4,7 +4,7 @@ local Http = game:GetService("HttpService")
 local TweenService = game:GetService("TweenService")
 local RunService = game:GetService("RunService")
 
-local Library = {Version = "1.5.1", _windows = {}, _sessionFiles = {}}
+local Library = {Version = "1.5.2", _windows = {}, _sessionFiles = {}}
 local Base, Window, Tab, Section, Control = {}, {}, {}, {}, {}
 Base.__index = Base
 for _, class in ipairs({Window, Tab, Section, Control}) do
@@ -214,12 +214,46 @@ local function animate(owner,obj,goals,seconds,channel,done)
     end)
     tween:Play()
 end
+local attachRipple
 local function make(owner, class, parent, props)
     local obj = Instance.new(class)
     owner._instances[obj] = true
     for k,v in pairs(props or {}) do property(owner,obj,k,v) end
     obj.Parent = parent
     return obj
+end
+attachRipple=function(owner,button)
+    local active
+    connect(owner,button.Activated,function(input)
+        if owner.Destroyed or not button.Parent or owner._window.Animations==false then return end
+        if active and not active.Destroyed then active:Destroy() end
+        local size=button.AbsoluteSize
+        if size.X<=0 or size.Y<=0 then return end
+        local x,y=0.5,0.5
+        if input and (input.UserInputType==Enum.UserInputType.MouseButton1 or input.UserInputType==Enum.UserInputType.Touch) then
+            local p=input.Position; local origin=button.AbsolutePosition
+            x=math.clamp((p.X-origin.X)/size.X,0,1)
+            y=math.clamp((p.Y-origin.Y)/size.Y,0,1)
+        end
+        local scope=node(Base,owner,owner._window)
+        active=scope
+        local originalDestroy=Base.Destroy
+        scope.Destroy=function(self)
+            if active==self then active=nil end
+            originalDestroy(self)
+        end
+        local layer=make(scope,"CanvasGroup",button,{Name="ClickRipple",Size=UDim2.new(1,0,1,0),Position=UDim2.new(),BackgroundTransparency=1,ClipsDescendants=true,Active=false,ZIndex=(button.ZIndex or 1)+1})
+        scope.container=layer
+        local corner=button:FindFirstChildOfClass("UICorner")
+        if corner then make(scope,"UICorner",layer,{CornerRadius=corner.CornerRadius}) end
+        local dot=make(scope,"Frame",layer,{AnchorPoint=Vector2.new(0.5,0.5),Position=UDim2.new(x,0,y,0),Size=UDim2.new(),BorderSizePixel=0,BackgroundColor3=role("Text"),BackgroundTransparency=0.84,ZIndex=(button.ZIndex or 1)+1})
+        make(scope,"UICorner",dot,{CornerRadius=UDim.new(0.5,0)})
+        connect(scope,button.Destroying,function() scope:Destroy() end)
+        local dx=math.max(x,1-x)*size.X
+        local dy=math.max(y,1-y)*size.Y
+        local diameter=2*math.sqrt(dx*dx+dy*dy)
+        animate(scope,dot,{Size=UDim2.new(diameter/size.X,0,diameter/size.Y,0),BackgroundTransparency=1},0.45,"ripple",function() scope:Destroy() end)
+    end)
 end
 local function round(owner, obj, radius)
     make(owner, "UICorner", obj, {CornerRadius = UDim.new(0, radius or 5)})
@@ -360,9 +394,13 @@ local function valueControl(section, title, kind, flag, callback, height)
     w._searchControls[c] = true
     c.container = frame(c,section.content,height or 32)
     connect(c,c.container.Destroying,function() c:Destroy() end)
-    round(c,c.container,w.Theme.CardRadius)
-    stroke(c,c.container,role("StrokeDim"))
-    hover(c,c.container)
+    if section._joined then
+        c.container.BackgroundTransparency=1
+    else
+        round(c,c.container,w.Theme.CardRadius)
+        stroke(c,c.container,role("StrokeDim"))
+        hover(c,c.container)
+    end
     c._title = text(c,c.container,title)
     if flag and flag ~= "" then c.Flag = flag; w._flags[flag] = c end
     return c
@@ -740,18 +778,23 @@ function Window:Tab(title, icon)
     t._hint=text(t,self._viewport,title,{Size=UDim2.new(0,150,0,26),Position=UDim2.new(0,54,0,42),
         BackgroundTransparency=0,BackgroundColor3=role("Elevated"),ZIndex=20,Visible=false})
     round(t,t._hint,5)
+    make(t,"UIPadding",t._hint,{PaddingLeft=UDim.new(0,8),PaddingRight=UDim.new(0,8)})
     local function positionHint()
-        local p=Input:GetMouseLocation(); local vp=self._viewport
+        local p=t._button.AbsolutePosition; local size=t._button.AbsoluteSize; local vp=self._viewport
         if vp then
-            local x=math.clamp(p.X-vp.AbsolutePosition.X+12,8,math.max(8,vp.AbsoluteSize.X-158))
-            local y=math.clamp(p.Y-vp.AbsolutePosition.Y+12,8,math.max(8,vp.AbsoluteSize.Y-34))
+            local bounds=t._hint.TextBounds
+            local width=math.clamp(bounds and bounds.X and bounds.X+16 or #tostring(title)*7+16,48,240)
+            t._hint.Size=UDim2.new(0,width,0,26)
+            local x=math.clamp(p.X+size.X-vp.AbsolutePosition.X+8,8,math.max(8,vp.AbsoluteSize.X-width-8))
+            local y=math.clamp(p.Y+size.Y/2-vp.AbsolutePosition.Y-13,8,math.max(8,vp.AbsoluteSize.Y-34))
             t._hint.Position=UDim2.new(0,x,0,y)
         end
     end
-    connect(t,Input.InputChanged,function(input)
-        if t._hint.Visible and input.UserInputType==Enum.UserInputType.MouseMovement then positionHint() end
+    connect(t,t._button:GetPropertyChangedSignal("AbsolutePosition"),function()
+        if t._hint.Visible then positionHint() end
     end)
     connect(t,t._button.MouseEnter,function()
+        for other in pairs(self._tabs) do other._hint.Visible=false end
         positionHint()
         t._hint.Visible=true
         animate(t,t._icon,{ImageTransparency=0},0.16,"hover")
@@ -801,6 +844,7 @@ function Window:PlayerTeleportTab(title)
         local distance=text(row,row.container,"—",{Size=UDim2.new(0,72,1,0),Position=UDim2.new(0.62,0,0,0),TextXAlignment=Enum.TextXAlignment.Right,TextColor3=role("TextSub"),TextSize=10})
         row._distance=distance
         local button=smallButton(row,row.container,"TELEPORT",92); button.Position=UDim2.new(1,-102,0.5,-11)
+        attachRipple(row,button)
         connect(row,button.Activated,function()
             local target=player.Character and player.Character:FindFirstChild("HumanoidRootPart")
             local character=Players.LocalPlayer.Character
@@ -920,11 +964,15 @@ Section.Section = Tab.Section
 function Section:Button(title, callback)
     local c = valueControl(self,title,"Button",nil,callback)
     c._title.Visible=false
-    local b = text(c,c.container,title,{Size=UDim2.new(1,-20,0,30),Position=UDim2.new(0,10,0.5,-15),TextXAlignment=Enum.TextXAlignment.Center,BackgroundTransparency=0,BackgroundColor3=role("Elevated"),TextSize=11},"TextButton")
-    round(c,b,5); stroke(c,b,role("StrokeDim"))
+    c.container.BackgroundTransparency=1
+    local outerStroke=c.container:FindFirstChildOfClass("UIStroke")
+    if outerStroke then outerStroke.Transparency=1 end
+    local b = text(c,c.container,title,{Size=UDim2.new(1,0,1,0),Position=UDim2.new(),TextXAlignment=Enum.TextXAlignment.Center,BackgroundTransparency=0,BackgroundColor3=role("Elevated"),TextSize=11},"TextButton")
+    round(c,b,c._window.Theme.CardRadius); stroke(c,b,role("StrokeDim"))
     connect(c,b.MouseEnter,function() animate(c,b,{BackgroundColor3=c.HoverColor or role("CardHover")},0.16,"button") end)
     connect(c,b.MouseLeave,function() animate(c,b,{BackgroundColor3=c.ButtonColor or role("Elevated")},0.22,"button") end)
     c.button=b
+    attachRipple(c,b)
     connect(c,b.Activated,function() c:Press() end)
     return c
 end
@@ -1169,6 +1217,7 @@ function Section:TextboxButton(title,buttonTitle,callback)
     local box=text(c,c.container,"",{Size=UDim2.new(1,-116,0,24),Position=UDim2.new(0,10,0,26),BackgroundTransparency=0,BackgroundColor3=role("Elevated"),ClearTextOnFocus=false,PlaceholderText="Enter text...",PlaceholderColor3=role("Muted")},"TextBox")
     round(c,box,4); c.textBox=box
     local button=smallButton(c,c.container,buttonTitle or "SEND",92); button.Position=UDim2.new(1,-102,0,26); c.button=button
+    attachRipple(c,button)
     c._set=function(control,value,silent) box.Text=tostring(value); publish(control,box.Text,silent) end
     c:Set("",true)
     connect(c,button.Activated,function() publish(c,box.Text,false) end)
@@ -1366,6 +1415,7 @@ function Section:Expand(value)
 end
 function Section:CollapsibleToggle(title,default,flag,callback,key)
     local group=self:CollapsibleGroup(title,false)
+    group:_JoinCard()
     group._header.Visible=false
     local toggle=group:Toggle(title,default,flag,callback,key)
     group.ToggleControl=toggle
@@ -1377,6 +1427,17 @@ function Section:CollapsibleToggle(title,default,flag,callback,key)
     connect(toggle,expandHit.Activated,function() group:Expand() end)
     connect(toggle,toggle.container.Destroying,function() if not group.Destroyed then group:Destroy() end end)
     return group
+end
+function Section:_JoinCard()
+    self._joined=true
+    self.container.BackgroundTransparency=0.15
+    property(self,self.container,"BackgroundColor3",role("Card"))
+    round(self,self.container,self._window.Theme.CardRadius)
+    stroke(self,self.container,role("StrokeDim"))
+    self.container:FindFirstChildOfClass("UIListLayout").Padding=UDim.new(0,0)
+    self.content:FindFirstChildOfClass("UIListLayout").Padding=UDim.new(0,0)
+    local padding=self.content:FindFirstChildOfClass("UIPadding")
+    if padding then padding.PaddingLeft=UDim.new(0,0); padding.PaddingRight=UDim.new(0,0) end
 end
 function Section:CheckboxToggle(title,default,flag,callback,key)
     local toggle=self:Toggle(title,default,flag,callback,key)
@@ -1404,6 +1465,7 @@ function Section:CheckboxToggle(title,default,flag,callback,key)
 end
 function Section:CheckboxDropdown(title,default,flag,callback,key)
     local group=self:CollapsibleGroup(title,false)
+    group:_JoinCard()
     group._header.Visible=false
     local toggle=group:CheckboxToggle(title,default,flag,callback,key)
     group.ToggleControl=toggle
