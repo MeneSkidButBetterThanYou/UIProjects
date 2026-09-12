@@ -4,7 +4,7 @@ local Http = game:GetService("HttpService")
 local TweenService = game:GetService("TweenService")
 local RunService = game:GetService("RunService")
 
-local Library = {Version = "1.5.7", _windows = {}, _sessionFiles = {}}
+local Library = {Version = "1.5.9", _windows = {}, _sessionFiles = {}}
 local Base, Window, Tab, Section, Control = {}, {}, {}, {}, {}
 Base.__index = Base
 for _, class in ipairs({Window, Tab, Section, Control}) do
@@ -593,6 +593,24 @@ function Library:New(options)
         TextXAlignment=Enum.TextXAlignment.Center,BackgroundTransparency=0,
         BackgroundColor3=role("Elevated"),Visible=false},"TextButton")
     round(w,w._restore)
+    w.MobileToggleEnabled=options.MobileToggle~=false and Input.TouchEnabled==true
+    local mobile=text(w,w.Gui,"UI",{Name="MobileToggle",Size=UDim2.new(0,52,0,52),Position=UDim2.new(0,18,1,-70),AnchorPoint=Vector2.new(0,1),TextXAlignment=Enum.TextXAlignment.Center,TextYAlignment=Enum.TextYAlignment.Center,TextSize=14,Font=Enum.Font.GothamBold,BackgroundTransparency=0,BackgroundColor3=role("Elevated"),Visible=w.MobileToggleEnabled,Active=true},"TextButton")
+    round(w,mobile,26); stroke(w,mobile,role("Stroke")); w._mobileToggle=mobile
+    local mobileStart,mobileOrigin,mobileMoved
+    local function placeMobile(x,y)
+        local screen=viewport.AbsoluteSize
+        mobile.Position=UDim2.new(0,math.clamp(x,8,math.max(8,screen.X-mobile.AbsoluteSize.X-8)),1,math.clamp(y,-screen.Y+mobile.AbsoluteSize.Y+8,-8))
+    end
+    drag(w,mobile,function(input)
+        local delta=input.Position-mobileStart
+        if delta.X*delta.X+delta.Y*delta.Y>36 then mobileMoved=true end
+        if mobileMoved then placeMobile(mobileOrigin.X+delta.X,mobileOrigin.Y+delta.Y) end
+    end,function(input)
+        mobileStart=input.Position; mobileMoved=false
+        local p=mobile.AbsolutePosition-viewport.AbsolutePosition
+        mobileOrigin=Vector2.new(p.X,p.Y-viewport.AbsoluteSize.Y+mobile.AbsoluteSize.Y)
+    end)
+    connect(w,mobile.Activated,function() if not mobileMoved then w:ToggleUI() end mobileMoved=false end)
     connect(w,minimize.Activated,function() w:SetVisible(false) end)
     connect(w,close.Activated,function() w:Destroy() end)
     connect(w,w._restore.Activated,function()
@@ -729,6 +747,11 @@ function Window:SetVisible(visible)
     releaseHolds(self)
 end
 function Window:ToggleUI() self:SetVisible(not self._shown) end
+function Window:SetMobileToggle(enabled)
+    alive(self)
+    self.MobileToggleEnabled=enabled==true
+    if self._mobileToggle then self._mobileToggle.Visible=self.MobileToggleEnabled end
+end
 function Window:SetAcrylic(enabled)
     alive(self)
     self.Acrylic=enabled==true
@@ -1124,8 +1147,7 @@ local function dropdown(section,title,options,default,flag,callback,multi)
     local valueBox=smallButton(c,head,"",138)
     local shown=text(c,valueBox,"None",{Size=UDim2.new(1,-30,1,0),Position=UDim2.new(0,8,0,0),
         TextColor3=role("TextSub"),TextSize=11})
-    local arrow=text(c,valueBox,"›",{Size=UDim2.new(0,14,1,0),Position=UDim2.new(1,-20,0,0),
-        Rotation=90,TextSize=17,TextXAlignment=Enum.TextXAlignment.Center})
+    local arrow=make(c,"ImageLabel",valueBox,{Size=UDim2.new(0,14,0,14),AnchorPoint=Vector2.new(0.5,0.5),Position=UDim2.new(1,-13,0.5,0),BackgroundTransparency=1,Image=resolveIcon("chevron-right"),ImageColor3=role("TextSub"),Rotation=90})
     local viewport=frame(c,c.container,0,true)
     viewport.LayoutOrder=1; viewport.ClipsDescendants=true; viewport.Visible=false
     local menu=make(c,"ScrollingFrame",viewport,{Size=UDim2.new(1,0,1,0),CanvasSize=UDim2.new(),
@@ -1413,7 +1435,7 @@ function Section:CollapsibleGroup(title, expanded)
         BackgroundTransparency=0.5,BackgroundColor3=role("Card")},"TextButton")
     round(s,head,s._window.Theme.CardRadius); stroke(s,head,role("StrokeDim"))
     s._title=text(s,head,title,{Position=UDim2.new(0,28,0,0),Size=UDim2.new(1,-38,1,0)})
-    local arrow=text(s,head,">",{Size=UDim2.new(0,18,1,0),Position=UDim2.new(0,8,0,0),TextSize=16,TextXAlignment=Enum.TextXAlignment.Center})
+    local arrow=make(s,"ImageLabel",head,{Size=UDim2.new(0,16,0,16),AnchorPoint=Vector2.new(0.5,0.5),Position=UDim2.new(0,16,0.5,0),BackgroundTransparency=1,Image=resolveIcon("chevron-right"),ImageColor3=role("TextSub")})
     s._header=head
     s._arrow=arrow
     local viewport=frame(s,s.container,0,true); viewport.LayoutOrder=1; viewport.ClipsDescendants=true
@@ -1454,7 +1476,7 @@ function Section:CollapsibleToggle(title,default,flag,callback,key)
     toggle.container.Parent=group.container; toggle.container.LayoutOrder=0
     toggle._title.Position=UDim2.new(0,28,0,0); toggle._title.Size=UDim2.new(1,-132,1,0)
     toggle._hit.Visible=false
-    group._extraArrow=text(toggle,toggle.container,">",{Size=UDim2.new(0,20,1,0),Position=UDim2.new(0,5,0,0),TextSize=16,TextXAlignment=Enum.TextXAlignment.Center,ZIndex=5})
+    group._extraArrow=make(toggle,"ImageLabel",toggle.container,{Size=UDim2.new(0,16,0,16),AnchorPoint=Vector2.new(0.5,0.5),Position=UDim2.new(0,15,0.5,0),BackgroundTransparency=1,Image=resolveIcon("chevron-right"),ImageColor3=role("TextSub"),ZIndex=5})
     local expandHit=text(toggle,toggle.container,"",{Size=UDim2.new(1,-100,1,0),Position=UDim2.new()},"TextButton")
     connect(toggle,expandHit.Activated,function() group:Expand() end)
     connect(toggle,toggle.container.Destroying,function() if not group.Destroyed then group:Destroy() end end)
@@ -1504,7 +1526,7 @@ function Section:CheckboxDropdown(title,default,flag,callback,key)
     toggle.container.Parent=group.container; toggle.container.LayoutOrder=0
     toggle._hit.Size=UDim2.new(0,36,1,0)
     local expand=text(toggle,toggle.container,"",{Position=UDim2.new(0,36,0,0),Size=UDim2.new(1,-140,1,0)},"TextButton")
-    local arrow=text(toggle,toggle.container,">",{Position=UDim2.new(1,-98,0,0),Size=UDim2.new(0,20,1,0),TextXAlignment=Enum.TextXAlignment.Center,Font=Enum.Font.Gotham})
+    local arrow=make(toggle,"ImageLabel",toggle.container,{Position=UDim2.new(1,-98,0.5,-8),Size=UDim2.new(0,16,0,16),BackgroundTransparency=1,Image=resolveIcon("chevron-right"),ImageColor3=role("TextSub")})
     group._extraArrow=arrow
     connect(toggle,expand.Activated,function() group:Expand() end)
     return group
@@ -1605,6 +1627,7 @@ function Window:_SyncConfiguration()
     set("Notifications",self.NotificationsEnabled)
     set("Duration",self.NotificationDuration)
     set("Animations",self.Animations)
+    set("MobileToggle",self.MobileToggleEnabled)
     for _,key in ipairs(THEME_COLORS) do set(key,self.Theme[key]) end
 end
 function Window:_ApplyTheme()
@@ -1754,6 +1777,7 @@ function Window:_BuildConfiguration()
     controls.Animations=settings:Toggle("UI animations",self.Animations,nil,function(value) self:SetAnimations(value) end)
     controls.Notifications=settings:Toggle("Notifications",true,nil,function(value) self.NotificationsEnabled=value end)
     controls.Hotkeys=settings:Toggle("Show active hotkeys",self.ShowActiveHotkeys,nil,function(value) self.ShowActiveHotkeys=value; self:_RefreshHotkeys() end)
+    controls.MobileToggle=settings:Toggle("Mobile on-screen toggle",self.MobileToggleEnabled,nil,function(value) self:SetMobileToggle(value) end)
     controls.Duration=settings:Slider("Notification seconds",5,15,1,0.5,nil,function(value) self.NotificationDuration=value end)
     settings:Button("Hide UI",function() self:SetVisible(false) end)
     settings:Button("Destroy UI",function() self:Destroy() end)
@@ -1781,7 +1805,7 @@ function Window:ExportConfig()
         colors[key]={c.R,c.G,c.B}
     end
     return Http:JSONEncode({version=1,values=values,ui={theme=self.ThemeName,colors=colors,
-        toggleKey=self.ToggleKey.Name,scale=self.UserScale,transparency=self.BackgroundTransparency,
+        toggleKey=self.ToggleKey.Name,scale=self.UserScale,transparency=self.BackgroundTransparency,mobileToggle=self.MobileToggleEnabled,
         notifications=self.NotificationsEnabled,duration=self.NotificationDuration,animations=self.Animations,acrylic=self.Acrylic}})
 end
 function Window:ImportConfig(json, silent)
@@ -1820,6 +1844,10 @@ function Window:ImportConfig(json, silent)
             if ui.animations~=nil then
                 assert(type(ui.animations)=="boolean","invalid animation preference")
                 self:SetAnimations(ui.animations)
+            end
+            if ui.mobileToggle~=nil then
+                assert(type(ui.mobileToggle)=="boolean","invalid mobile toggle preference")
+                self:SetMobileToggle(ui.mobileToggle)
             end
             self:_ApplyTheme()
             if ui.acrylic~=nil then self:SetAcrylic(ui.acrylic==true) end
