@@ -1,10 +1,9 @@
-
 local Players = game:GetService("Players")
 local Input = game:GetService("UserInputService")
 local Http = game:GetService("HttpService")
 local TweenService = game:GetService("TweenService")
 
-local Library = {Version = "1.2.0", _windows = {}, _sessionFiles = {}}
+local Library = {Version = "1.3.0", _windows = {}, _sessionFiles = {}}
 local Base, Window, Tab, Section, Control = {}, {}, {}, {}, {}
 Base.__index = Base
 for _, class in ipairs({Window, Tab, Section, Control}) do
@@ -193,7 +192,7 @@ local function animate(owner,obj,goals,seconds,channel,done)
     local slots=owner._animations[obj] or {}
     owner._animations[obj]=slots
     local record={goals=resolved,done=done}
-    local tween=TweenService:Create(obj,TweenInfo.new(seconds or 0.15,Enum.EasingStyle.Quad,Enum.EasingDirection.Out),resolved)
+    local tween=TweenService:Create(obj,TweenInfo.new(seconds or 0.15,Enum.EasingStyle.Sine,Enum.EasingDirection.InOut),resolved)
     record.tween=tween
     slots[channel]=record
     record.connection=tween.Completed:Connect(function(state)
@@ -250,14 +249,14 @@ local function smallButton(owner, parent, title, width)
     }, "TextButton")
     round(owner,b)
     stroke(owner,b,role("Stroke"))
-    connect(owner,b.MouseEnter,function() animate(owner,b,{BackgroundColor3=role("CardHover")},0.12,"button") end)
-    connect(owner,b.MouseLeave,function() animate(owner,b,{BackgroundColor3=role("Elevated")},0.16,"button") end)
+    connect(owner,b.MouseEnter,function() animate(owner,b,{BackgroundColor3=role("CardHover")},0.16,"button") end)
+    connect(owner,b.MouseLeave,function() animate(owner,b,{BackgroundColor3=role("Elevated")},0.22,"button") end)
     return b
 end
 local function hover(owner, obj)
     local theme = owner._window.Theme
-    connect(owner, obj.MouseEnter, function() animate(owner,obj,{BackgroundColor3=role("CardHover")},0.12,"hover") end)
-    connect(owner, obj.MouseLeave, function() animate(owner,obj,{BackgroundColor3=role("Card")},0.16,"hover") end)
+    connect(owner, obj.MouseEnter, function() animate(owner,obj,{BackgroundColor3=role("CardHover")},0.16,"hover") end)
+    connect(owner, obj.MouseLeave, function() animate(owner,obj,{BackgroundColor3=role("Card")},0.22,"hover") end)
 end
 local function autoFrame(owner, parent)
     local f = frame(owner,parent,0,true)
@@ -265,6 +264,7 @@ local function autoFrame(owner, parent)
     list(owner,f,4)
     return f
 end
+
 function Base:Destroy()
     if self.Destroyed then return end
     self.Destroyed = true
@@ -345,6 +345,9 @@ local function valueControl(section, title, kind, flag, callback, height)
     end
     local c = node(Control, section, w)
     c.Kind, c._callback = kind, callback
+    c._searchText = tostring(title or ""):lower()
+    w._searchControls = w._searchControls or {}
+    w._searchControls[c] = true
     c.container = frame(c,section.content,height or 32)
     connect(c,c.container.Destroying,function() c:Destroy() end)
     round(c,c.container,w.Theme.CardRadius)
@@ -353,6 +356,19 @@ local function valueControl(section, title, kind, flag, callback, height)
     c._title = text(c,c.container,title)
     if flag and flag ~= "" then c.Flag = flag; w._flags[flag] = c end
     return c
+end
+function Window:_Search(query)
+    query = tostring(query or ""):lower():match("^%s*(.-)%s*$")
+    self._searchQuery = query
+    for control in pairs(self._searchControls or {}) do
+        if not control.Destroyed then
+            if control._searchOriginalVisible == nil then
+                control._searchOriginalVisible = control.container.Visible
+            end
+            local visible = query == "" or control._searchText:find(query, 1, true) ~= nil
+            control.container.Visible = visible and control._searchOriginalVisible ~= false
+        end
+    end
 end
 local function publish(c, value, silent)
     c.Value = snapshot(value)
@@ -466,11 +482,24 @@ function Library:New(options)
             scale.Scale = math.min(w.UserScale, math.max(0.1, math.min((size.X-20)/width,(size.Y-20)/height)))
         end
     end
+    local originalFit=fit
+    fit=function()
+        originalFit()
+        if w._clampRestore then w._clampRestore() end
+    end
     w._fit = fit
     connect(w,viewport:GetPropertyChangedSignal("AbsoluteSize"),fit)
     fit()
-    local title = text(w,w.container,options.Name or "JLXUI",{Size=UDim2.new(1,-150,0,38),TextSize=14})
+    w._searchControls = {}
+    local title = text(w,w.container,options.Name or "JLXUI",{Size=UDim2.new(1,-390,0,38),TextSize=14})
     title.Active = true
+    local search = text(w,w.container,"",{Size=UDim2.new(0,230,0,28),Position=UDim2.new(1,-334,0,5),
+        BackgroundTransparency=0,BackgroundColor3=role("Elevated"),TextColor3=role("Text"),
+        PlaceholderText="⌕  Search...  (Ctrl+F)",PlaceholderColor3=role("Muted"),
+        ClearTextOnFocus=false,TextSize=11},"TextBox")
+    round(w,search,7); stroke(w,search,role("StrokeDim"))
+    w.SearchBox = search
+    connect(w,search:GetPropertyChangedSignal("Text"),function() w:_Search(search.Text) end)
     local minimize = smallButton(w,w.container,"−",28)
     minimize.Position = UDim2.new(1,-74,0,8)
     local close = smallButton(w,w.container,"×",28)
@@ -493,7 +522,30 @@ function Library:New(options)
     round(w,w._restore)
     connect(w,minimize.Activated,function() w:SetVisible(false) end)
     connect(w,close.Activated,function() w:Destroy() end)
-    connect(w,w._restore.Activated,function() w:SetVisible(true) end)
+    connect(w,w._restore.Activated,function()
+        if not w._restoreMoved then w:SetVisible(true) end
+    end)
+    local restoreStart,restoreX,restoreY
+    local function placeRestore(x,y)
+        local size=viewport.AbsoluteSize
+        local buttonSize=w._restore.AbsoluteSize
+        w._restore.Position=UDim2.new(0,math.clamp(x,8,math.max(8,size.X-buttonSize.X-8)),
+            0,math.clamp(y,8,math.max(8,size.Y-buttonSize.Y-8)))
+    end
+    w._clampRestore=function()
+        local p=w._restore.AbsolutePosition-viewport.AbsolutePosition
+        placeRestore(p.X,p.Y)
+    end
+    drag(w,w._restore,function(input)
+        local delta=input.Position-restoreStart
+        if delta.X*delta.X+delta.Y*delta.Y>=36 then w._restoreMoved=true end
+        if w._restoreMoved then placeRestore(restoreX+delta.X,restoreY+delta.Y) end
+    end,function(input)
+        w._restoreMoved=false
+        restoreStart=input.Position
+        local p=w._restore.AbsolutePosition-viewport.AbsolutePosition
+        restoreX,restoreY=p.X,p.Y
+    end)
     local dragStart, startPos
     drag(w,title,function(input)
         local delta = input.Position - dragStart
@@ -536,6 +588,11 @@ function Library:New(options)
             elseif input.KeyCode ~= Enum.KeyCode.Unknown then captured:Set(input.KeyCode); w._capture=nil end
             return
         end
+        if input.KeyCode == Enum.KeyCode.F and (input.UserInputType == Enum.UserInputType.Keyboard) and
+            (input.IsModifierKeyDown and input:IsModifierKeyDown(Enum.ModifierKey.Ctrl) or false) then
+            search:CaptureFocus()
+            return
+        end
         if processed or Input:GetFocusedTextBox() then return end
         if input.KeyCode == w.ToggleKey then w:SetVisible(not w._shown); return end
         for bind in pairs(w._binds) do
@@ -552,7 +609,7 @@ function Library:New(options)
     self._windows[id], self._last = w, w
     if options.Configuration ~= false then w:_BuildConfiguration() end
     w.container.GroupTransparency=1
-    animate(w,w.container,{GroupTransparency=0},0.2,"visibility")
+    animate(w,w.container,{GroupTransparency=0},0.28,"visibility")
     return w
 end
 function Window:SetVisible(visible)
@@ -560,7 +617,7 @@ function Window:SetVisible(visible)
     self._shown = visible == true
     self._restore.Visible = not self._shown
     if self._shown then self.container.Visible=true end
-    animate(self,self.container,{GroupTransparency=self._shown and 0 or 1},0.18,"visibility",function()
+    animate(self,self.container,{GroupTransparency=self._shown and 0 or 1},0.24,"visibility",function()
         if not self._shown then self.container.Visible=false end
     end)
     self._drag=nil
@@ -597,11 +654,11 @@ function Window:Tab(title, icon)
     round(t,t._hint,5)
     connect(t,t._button.MouseEnter,function()
         t._hint.Visible=true
-        animate(t,t._icon,{ImageTransparency=0},0.12,"hover")
+        animate(t,t._icon,{ImageTransparency=0},0.16,"hover")
     end)
     connect(t,t._button.MouseLeave,function()
         t._hint.Visible=false
-        animate(t,t._icon,{ImageTransparency=self._activeTab==t and 0 or 0.4},0.12,"hover")
+        animate(t,t._icon,{ImageTransparency=self._activeTab==t and 0 or 0.4},0.16,"hover")
     end)
     t.container = make(t,"ScrollingFrame",self._content,{Size=UDim2.new(1,0,1,0),
         BackgroundTransparency=1,BorderSizePixel=0,CanvasSize=UDim2.new(),
@@ -620,14 +677,14 @@ function Tab:Select()
     local w = self._window
     for tab in pairs(w._tabs) do
         tab.container.Visible = tab == self
-        animate(tab,tab._button,{BackgroundTransparency=tab==self and 0 or 1},0.14,"selection")
-        animate(tab,tab._icon,{ImageTransparency=tab==self and 0 or 0.4},0.14,"hover")
-        animate(tab,tab._indicator,{BackgroundTransparency=tab==self and 0 or 1},0.14,"selection")
+        animate(tab,tab._button,{BackgroundTransparency=tab==self and 0 or 1},0.20,"selection")
+        animate(tab,tab._icon,{ImageTransparency=tab==self and 0 or 0.4},0.20,"hover")
+        animate(tab,tab._indicator,{BackgroundTransparency=tab==self and 0 or 1},0.20,"selection")
         tab._hint.Visible=false
         property(tab,tab._button,"TextColor3",role(tab == self and "Text" or "TextSub"))
     end
     self.container.Position=UDim2.new(0,0,0,7)
-    animate(self,self.container,{Position=UDim2.new()},0.16,"page")
+    animate(self,self.container,{Position=UDim2.new()},0.22,"page")
     w._activeTab = self
     w._drag = nil
     cancelCapture(w)
@@ -668,7 +725,7 @@ function Section:Toggle(title, default, flag, callback, key)
     c._hit=hit
     c._set=function(control,value,silent)
         assert(type(value)=="boolean","JLXUI: Toggle:Set expects a boolean")
-        local seconds=silent and 0 or 0.14
+        local seconds=silent and 0 or 0.22
         animate(control,pill,{BackgroundColor3=role(value and "Accent" or "Elevated")},seconds,"switch")
         animate(control,knob,{Position=value and UDim2.new(1,-14,0.5,-6) or UDim2.new(0,2,0.5,-6),
             BackgroundColor3=role(value and "Bg" or "TextSub")},seconds,"switch")
@@ -777,7 +834,7 @@ local function dropdown(section,title,options,default,flag,callback,multi)
     c._open=false
     c._resizeMenu=function(control)
         local height=math.min(180,#control._options*28+4)
-        animate(control,viewport,{Size=UDim2.new(1,0,0,control._open and height or 0)},0.18,"expand",function()
+        animate(control,viewport,{Size=UDim2.new(1,0,0,control._open and height or 0)},0.24,"expand",function()
             if not control._open then viewport.Visible=false end
         end)
     end
@@ -785,7 +842,7 @@ local function dropdown(section,title,options,default,flag,callback,multi)
         if open==nil then open=not control._open end
         control._open=open==true
         if control._open then viewport.Visible=true end
-        animate(control,arrow,{Rotation=control._open and 270 or 90},0.16,"arrow")
+        animate(control,arrow,{Rotation=control._open and 270 or 90},0.22,"arrow")
         control:_resizeMenu()
     end
     local function paint()
@@ -825,7 +882,6 @@ local function dropdown(section,title,options,default,flag,callback,multi)
                     if at then table.remove(selected,at) else selected[#selected+1]=option end
                     control:Set(selected)
                 else
-                    control:ToggleDropdown(false)
                     control:Set(option)
                 end
             end)
@@ -989,16 +1045,16 @@ function Section:CollapsibleGroup(title, expanded)
         if value==nil then value=not group.Expanded end
         group.Expanded=value==true
         group.content.Visible=true
-        animate(group,arrow,{Rotation=group.Expanded and 90 or 0},0.16,"arrow")
+        animate(group,arrow,{Rotation=group.Expanded and 90 or 0},0.22,"arrow")
         if group._extraArrow and not group.ToggleControl.Destroyed then
-            animate(group.ToggleControl,group._extraArrow,{Rotation=group.Expanded and 90 or 0},0.16,"arrow")
+            animate(group.ToggleControl,group._extraArrow,{Rotation=group.Expanded and 90 or 0},0.22,"arrow")
         end
-        animate(group,viewport,{Size=UDim2.new(1,0,0,group.Expanded and contentLayout.AbsoluteContentSize.Y or 0)},0.2,"expand",function()
+        animate(group,viewport,{Size=UDim2.new(1,0,0,group.Expanded and contentLayout.AbsoluteContentSize.Y or 0)},0.28,"expand",function()
             if not group.Expanded then group.content.Visible=false end
         end)
     end
     connect(s,contentLayout:GetPropertyChangedSignal("AbsoluteContentSize"),function()
-        if s.Expanded then animate(s,viewport,{Size=UDim2.new(1,0,0,contentLayout.AbsoluteContentSize.Y)},0.12,"expand") end
+        if s.Expanded then animate(s,viewport,{Size=UDim2.new(1,0,0,contentLayout.AbsoluteContentSize.Y)},0.16,"expand") end
     end)
     s:Expand(expanded==true)
     connect(s,s.container.Destroying,function() s:Destroy() end)
@@ -1051,7 +1107,7 @@ function Window:Notification(title,message,duration)
     end
     n._dismiss=function(notice)
         if notice._timer then pcall(task.cancel,notice._timer); notice._timer=nil end
-        animate(notice,notice.container,{GroupTransparency=1},0.16,"entrance",function() notice:Destroy() end)
+        animate(notice,notice.container,{GroupTransparency=1},0.22,"entrance",function() notice:Destroy() end)
     end
     self._notificationSequence=self._notificationSequence+1
     n.container=frame(n,self._notificationHost,80,nil,"CanvasGroup")
@@ -1067,7 +1123,7 @@ function Window:Notification(title,message,duration)
     connect(n,close.Activated,function() n:Dismiss() end)
     self._notifications[#self._notifications+1]=n
     n.container.GroupTransparency=1
-    animate(n,n.container,{GroupTransparency=0},0.18,"entrance")
+    animate(n,n.container,{GroupTransparency=0},0.24,"entrance")
     if duration>0 then
         n._timer=task.delay(duration,function()
             n._timer=nil
@@ -1083,6 +1139,7 @@ end
 function Library:Destroy()
     while next(self._windows) do select(2,next(self._windows)):Destroy() end
 end
+
 local THEME_COLORS={"Accent","Bg","Sidebar","Card","CardHover","Elevated","Stroke","StrokeDim","Text","TextSub","Muted"}
 function Window:_SyncConfiguration()
     local controls=self._configControls
@@ -1155,7 +1212,7 @@ function Window:SetToggleKey(key)
 end
 function Window:ListConfigs()
     alive(self)
-    configPath(self,"default")
+    configPath(self,"default") -- Validate the folder before accessing storage.
     local found={}
     for name in pairs(self._knownConfigs or {}) do found[name]=true end
     if self._storage.List then
