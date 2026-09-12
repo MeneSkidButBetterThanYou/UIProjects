@@ -2,6 +2,7 @@ local Players = game:GetService("Players")
 local Input = game:GetService("UserInputService")
 local Http = game:GetService("HttpService")
 local TweenService = game:GetService("TweenService")
+local RunService = game:GetService("RunService")
 
 local Library = {Version = "1.4.5", _windows = {}, _sessionFiles = {}}
 local Base, Window, Tab, Section, Control = {}, {}, {}, {}, {}
@@ -719,6 +720,91 @@ function Window:Tab(title, icon)
     if not self._activeTab or self._activeTab == self._configTab then t:Select() end
     return t
 end
+function Window:PlayerTeleportTab(title)
+    alive(self)
+    local tab=self:Tab(title or "ALL","MapPin")
+    local section=tab:Section("Quick player teleports")
+    local rows={}
+    local function remove(player)
+        local row=rows[player]
+        if row then row:Destroy(); rows[player]=nil end
+    end
+    local function add(player)
+        if player==Players.LocalPlayer or rows[player] then return end
+        local row=node(Control,section,self)
+        row._searchText=player.Name:lower()
+        self._searchControls[row]=true
+        row.container=frame(row,section.content,32)
+        round(row,row.container,5); stroke(row,row.container,role("StrokeDim"))
+        local accent=make(row,"Frame",row.container,{Size=UDim2.new(0,3,0,22),Position=UDim2.new(0,8,0.5,-11),BackgroundColor3=role("Accent"),BorderSizePixel=0})
+        round(row,accent,2)
+        local label=text(row,row.container,player.DisplayName .. "  [" .. player.Name .. "]",{Size=UDim2.new(0.62,0,1,0),Position=UDim2.new(0,20,0,0),TextSize=11})
+        local distance=text(row,row.container,"—",{Size=UDim2.new(0,72,1,0),Position=UDim2.new(0.62,0,0,0),TextXAlignment=Enum.TextXAlignment.Right,TextColor3=role("TextSub"),TextSize=10})
+        row._distance=distance
+        local button=smallButton(row,row.container,"TELEPORT",92); button.Position=UDim2.new(1,-102,0.5,-11)
+        connect(row,button.Activated,function()
+            local target=player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+            local character=Players.LocalPlayer.Character
+            if target and character then character:PivotTo(target.CFrame + Vector3.new(0,3,0)) end
+        end)
+        rows[player]=row
+    end
+    for _,player in ipairs(Players:GetPlayers()) do add(player) end
+    connect(self,Players.PlayerAdded,add)
+    connect(self,Players.PlayerRemoving,remove)
+    connect(self,RunService.RenderStepped,function()
+        local root=Players.LocalPlayer.Character and Players.LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+        if not root then return end
+        for player,row in pairs(rows) do
+            if row.Destroyed then rows[player]=nil else
+                local target=player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+                if target and row._distance then row._distance.Text=string.format("%.0fm",(root.Position-target.Position).Magnitude) end
+            end
+        end
+    end)
+    tab:Select()
+    return tab
+end
+Window.CreatePlayerTeleportTab=Window.PlayerTeleportTab
+function Window:CommunityTab(options)
+    alive(self)
+    options=options or {}
+    local tab=self:Tab(options.Title or "Community","Cloud")
+    local info=tab:Section("Config hub")
+    info:Label(options.Description or "Browse and share configurations with the community.")
+    local share=tab:Section("Share your config")
+    local configName=share:Textbox("Config title",false)
+    local author=share:Textbox("Author name",false)
+    local description=share:Textbox("Description",false)
+    local category=share:Dropdown("Category",{"LEGIT","RAGE","FARM","SURVIVOR","KILLER"},"LEGIT")
+    local status=share:Label("Ready to publish")
+    share:Button("Publish config",function()
+        local payload={title=configName:Get(),author=author:Get(),description=description:Get(),category=category:Get(),config=self:ExportConfig()}
+        if type(options.Publish)=="function" then
+            local ok,result=pcall(options.Publish,payload)
+            status:Set(ok and (result or "Published") or tostring(result))
+        else
+            status:Set("Provide CommunityTab({Publish=function(payload) ... end})")
+        end
+    end)
+    local feed=tab:Section("Community configurations")
+    feed:Label("A server adapter can populate this section with your own feed.")
+    if type(options.LoadFeed)=="function" then
+        local ok,items=pcall(options.LoadFeed)
+        if ok and type(items)=="table" then
+            for _,item in ipairs(items) do
+                local title=tostring(item.title or "Untitled")
+                local row=feed:Button(title .. "  " .. tostring(item.author or ""),function()
+                    if type(options.LoadConfig)=="function" then pcall(options.LoadConfig,item) end
+                end)
+                row:SetText(title .. "  " .. tostring(item.author or ""))
+            end
+        end
+    end
+    tab:Select()
+    return tab
+end
+Window.CreateCommunityTab=Window.CommunityTab
 function Tab:Select()
     alive(self)
     local w = self._window
@@ -1031,7 +1117,11 @@ function Section:Colorpicker(title,default,flag,callback)
     local c=valueControl(self,title,"Colorpicker",flag,callback,195)
     c._title.Size=UDim2.new(0.6,0,0,26)
     local hex=text(c,c.container,"",{Size=UDim2.new(0.35,-10,0,26),Position=UDim2.new(0.65,0,0,0),
-        TextXAlignment=Enum.TextXAlignment.Right,TextColor3=role("TextSub")})
+        TextXAlignment=Enum.TextXAlignment.Right,TextColor3=role("TextSub"),TextSize=11},"TextButton")
+    local hexEdit=text(c,c.container,"",{Size=UDim2.new(0,92,0,24),Position=UDim2.new(1,-102,0,1),
+        BackgroundTransparency=0,BackgroundColor3=role("Elevated"),TextColor3=role("Text"),
+        ClearTextOnFocus=false,Visible=false,TextSize=11},"TextBox")
+    round(c,hexEdit,4); stroke(c,hexEdit,role("Stroke"))
     local square=frame(c,c.container,118)
     square.Size=UDim2.new(1,-70,0,118); square.Position=UDim2.new(0,10,0,34)
     square.BackgroundTransparency=0
@@ -1061,6 +1151,7 @@ function Section:Colorpicker(title,default,flag,callback)
         property(c,preview,"BackgroundColor3",value)
         dot.Position=UDim2.new(s,0,1-v,0); mark.Position=UDim2.new(h,0,0.5,0)
         hex.Text=string.format("#%02X%02X%02X",math.floor(value.R*255+0.5),math.floor(value.G*255+0.5),math.floor(value.B*255+0.5))
+        hexEdit.Text=hex.Text
         publish(control,value,silent)
     end
     c._set=function(control,value,silent)
@@ -1069,6 +1160,17 @@ function Section:Colorpicker(title,default,flag,callback)
         draw(control,value,silent)
     end
     c:Set(default or Color3.new(1,1,1),true)
+    connect(c,hex.Activated,function()
+        hex.Visible=false; hexEdit.Visible=true; hexEdit:CaptureFocus()
+    end)
+    connect(c,hexEdit.FocusLost,function()
+        local raw=hexEdit.Text:gsub("#",""):gsub("%s","")
+        if #raw==3 then raw=raw:gsub("(.)","%1%1") end
+        if raw:match("^%x%x%x%x%x%x$") then
+            c:Set(Color3.fromRGB(tonumber(raw:sub(1,2),16),tonumber(raw:sub(3,4),16),tonumber(raw:sub(5,6),16)))
+        end
+        hexEdit.Visible=false; hex.Visible=true
+    end)
     drag(c,squareHit,function(input)
         s=math.clamp((input.Position.X-square.AbsolutePosition.X)/math.max(1,square.AbsoluteSize.X),0,1)
         v=1-math.clamp((input.Position.Y-square.AbsolutePosition.Y)/math.max(1,square.AbsoluteSize.Y),0,1)
@@ -1080,6 +1182,31 @@ function Section:Colorpicker(title,default,flag,callback)
     end)
     return c
 end
+
+function Section:ColorPalette(title, colors, default, flag, callback)
+    local c=valueControl(self,title,"ColorPalette",flag,callback,58)
+    colors=colors or {Color3.fromRGB(239,68,68),Color3.fromRGB(245,158,11),Color3.fromRGB(250,204,21),Color3.fromRGB(34,197,94),Color3.fromRGB(6,182,212),Color3.fromRGB(59,130,246),Color3.fromRGB(168,85,247),Color3.fromRGB(236,72,153),Color3.fromRGB(255,255,255),Color3.fromRGB(156,163,175)}
+    local row=make(c,"Frame",c.container,{Size=UDim2.new(1,-120,0,30),Position=UDim2.new(0,110,0.5,-15),BackgroundTransparency=1})
+    local layout=make(c,"UIListLayout",row,{FillDirection=Enum.FillDirection.Horizontal,HorizontalAlignment=Enum.HorizontalAlignment.Right,Padding=UDim.new(0,7)})
+    c._set=function(control,value,silent)
+        assert(typeof(value)=="Color3","JLXUI: palette value must be Color3")
+        control.Value=value
+        if control.Flag then control._window.Flags[control.Flag]=value end
+        if control._preview then control._preview.BackgroundColor3=value end
+        if not silent then call(control._callback,value) end
+    end
+    local preview=frame(c,c.container,28); preview.Size=UDim2.new(0,96,0,28); preview.Position=UDim2.new(1,-106,0.5,-14); preview.BackgroundTransparency=0
+    round(c,preview,6); stroke(c,preview,role("Stroke")); c._preview=preview
+    for _,color in ipairs(colors) do
+        local swatch=frame(c,row,22); swatch.Size=UDim2.new(0,22,0,22); swatch.BackgroundTransparency=0; swatch.BackgroundColor3=color
+        round(c,swatch,11); stroke(c,swatch,role("Stroke"))
+        local hit=text(c,swatch,"",{Size=UDim2.new(1,0,1,0),Position=UDim2.new(),BackgroundTransparency=1},"TextButton")
+        connect(c,hit.Activated,function() c:Set(color) end)
+    end
+    c:Set(default or colors[1],true)
+    return c
+end
+Section.ColorDropdown=Section.ColorPalette
 
 function Section:CollapsibleGroup(title, expanded)
     local s=node(Section,self,self._window)
@@ -1134,6 +1261,8 @@ function Section:CollapsibleToggle(title,default,flag,callback,key)
     connect(toggle,toggle.container.Destroying,function() if not group.Destroyed then group:Destroy() end end)
     return group
 end
+Section.MasterToggle=Section.Toggle
+Section.ToggleWithDropdown=Section.CollapsibleToggle
 
 function Window:Notification(title,message,duration)
     alive(self)
