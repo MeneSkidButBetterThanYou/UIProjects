@@ -124,6 +124,14 @@ end
 local function finite(n)
     return type(n) == "number" and n == n and n > -math.huge and n < math.huge
 end
+local function color3(value)
+    if typeof(value)=="Color3" then return value end
+    if type(value)=="table" then
+        local r=value.R or value[1]; local g=value.G or value[2]; local b=value.B or value[3]
+        if r and g and b then return Color3.fromRGB(r<=1 and r*255 or r,g<=1 and g*255 or g,b<=1 and b*255 or b) end
+    end
+    return nil
+end
 local function call(fn, ...)
     if not fn then return end
     local ok, err = pcall(fn, ...)
@@ -504,7 +512,7 @@ function Library:New(options)
         if bounds and bounds.X then version.Position=UDim2.new(0,16+bounds.X,0,0) end
     end)
     task.defer(function()
-        if not title.Destroyed then local bounds=title.TextBounds; if bounds and bounds.X then version.Position=UDim2.new(0,16+bounds.X,0,0) end end
+        if title.Parent then local bounds=title.TextBounds; if bounds and bounds.X then version.Position=UDim2.new(0,16+bounds.X,0,0) end end
     end)
     local search = text(w,w.container,"",{Size=UDim2.new(0,250,0,30),Position=UDim2.new(1,-370,0,4),
         BackgroundTransparency=0,BackgroundColor3=role("Elevated"),TextColor3=role("Text"),
@@ -715,10 +723,10 @@ function Window:Tab(title, icon)
         BackgroundTransparency=0,BackgroundColor3=role("Elevated"),ZIndex=20,Visible=false})
     round(t,t._hint,5)
     connect(t,t._button.MouseEnter,function()
-        local p=Input:GetMouseLocation(); local vp=self._window._viewport
+        local p=Input:GetMouseLocation(); local vp=self._window._viewport; local base=self._window.container.AbsolutePosition
         if vp then
-            local x=math.clamp(p.X-vp.AbsolutePosition.X+10,8,math.max(8,vp.AbsoluteSize.X-158))
-            local y=math.clamp(p.Y-vp.AbsolutePosition.Y+10,8,math.max(8,vp.AbsoluteSize.Y-34))
+            local x=math.clamp(p.X-base.X+10,8,math.max(8,self._window.container.AbsoluteSize.X-158))
+            local y=math.clamp(p.Y-base.Y+10,8,math.max(8,self._window.container.AbsoluteSize.Y-34))
             t._hint.Position=UDim2.new(0,x,0,y)
         end
         t._hint.Visible=true
@@ -865,8 +873,11 @@ Section.Section = Tab.Section
 
 function Section:Button(title, callback)
     local c = valueControl(self,title,"Button",nil,callback)
-    c._title.Size = UDim2.new(1,-120,1,0)
-    local b = smallButton(c,c.container,"TRIGGER")
+    c._title.Visible=false
+    local b = text(c,c.container,title,{Size=UDim2.new(1,-20,0,30),Position=UDim2.new(0,10,0.5,-15),TextXAlignment=Enum.TextXAlignment.Center,BackgroundTransparency=0,BackgroundColor3=role("Elevated"),TextSize=11},"TextButton")
+    round(c,b,5); stroke(c,b,role("StrokeDim"))
+    connect(c,b.MouseEnter,function() animate(c,b,{BackgroundColor3=role("CardHover")},0.16,"button") end)
+    connect(c,b.MouseLeave,function() animate(c,b,{BackgroundColor3=role("Elevated")},0.22,"button") end)
     c.button=b
     connect(c,b.Activated,function() c:Press() end)
     return c
@@ -882,6 +893,7 @@ function Section:Toggle(title, default, flag, callback, key)
     knob.Size=UDim2.new(0,12,0,12); knob.Position=UDim2.new(0,2,0.5,-6)
     knob.BackgroundTransparency=0
     round(c,knob,6)
+    c._pill=pill; c._knob=knob
     local hit=text(c,c.container,"",{Size=UDim2.new(1,-90,1,0),Position=UDim2.new()},"TextButton")
     local switchHit=text(c,c.container,"",{Size=UDim2.new(0,46,1,0),Position=UDim2.new(1,-46,0,0)},"TextButton")
     c._hit=hit
@@ -1225,7 +1237,7 @@ function Section:ColorPalette(title, colors, default, flag, callback)
     local row=make(c,"Frame",c.container,{Size=UDim2.new(1,-120,0,30),Position=UDim2.new(0,110,0.5,-15),BackgroundTransparency=1})
     local layout=make(c,"UIListLayout",row,{FillDirection=Enum.FillDirection.Horizontal,HorizontalAlignment=Enum.HorizontalAlignment.Right,Padding=UDim.new(0,7)})
     c._set=function(control,value,silent)
-        assert(typeof(value)=="Color3","JLXUI: palette value must be Color3")
+        value=color3(value); assert(value,"JLXUI: palette value must be Color3")
         control.Value=value
         if control.Flag then control._window.Flags[control.Flag]=value end
         if control._preview then control._preview.BackgroundColor3=value end
@@ -1255,10 +1267,11 @@ function Section:ColorDropdown(title, colors, default, flag, callback)
     local function setOpen(v) open=v; viewport.Visible=true; animate(c,viewport,{Size=UDim2.new(1,0,0,v and 46 or 0)},0.2,"dropdown",function() if not open then viewport.Visible=false end end); value.Text=v and "⌃" or "⌄" end
     connect(c,value.Activated,function() setOpen(not open) end)
     c._set=function(control,color,silent)
-        assert(typeof(color)=="Color3","JLXUI: palette value must be Color3")
+        color=color3(color); assert(color,"JLXUI: palette value must be Color3")
         control.Value=color; if control.Flag then control._window.Flags[control.Flag]=color end; preview.BackgroundColor3=color; if not silent then call(control._callback,color) end
     end
-    for _,color in ipairs(colors) do
+    for _,rawColor in ipairs(colors) do
+        local color=color3(rawColor) or Color3.fromRGB(255,255,255)
         local sw=frame(c,row,24); sw.Size=UDim2.new(0,24,0,24); sw.BackgroundTransparency=0; sw.BackgroundColor3=color; round(c,sw,12); stroke(c,sw,role("Stroke")); local hit=text(c,sw,"",{Size=UDim2.new(1,0,1,0),Position=UDim2.new(),BackgroundTransparency=1},"TextButton"); connect(c,hit.Activated,function() c:Set(color) end)
     end
     c:Set(default or colors[1],true)
@@ -1318,7 +1331,22 @@ function Section:CollapsibleToggle(title,default,flag,callback,key)
     connect(toggle,toggle.container.Destroying,function() if not group.Destroyed then group:Destroy() end end)
     return group
 end
-Section.MasterToggle=Section.CollapsibleToggle
+function Section:CheckboxToggle(title,default,flag,callback,key)
+    local group=self:CollapsibleToggle(title,default,flag,callback,key)
+    local toggle=group.ToggleControl
+    if toggle._pill then toggle._pill.Size=UDim2.new(0,20,0,20); toggle._pill.Position=UDim2.new(1,-30,0.5,-10); toggle._pill.BackgroundColor3=role("Elevated") end
+    if toggle._knob then toggle._knob.Size=UDim2.new(0,16,0,16); toggle._knob.Position=UDim2.new(0,2,0.5,-8); toggle._knob.BackgroundColor3=role("TextSub"); round(toggle,toggle._knob,4) end
+    if toggle._set then
+        local old=toggle._set
+        toggle._set=function(control,value,silent)
+            old(control,value,silent)
+            if control._knob then control._knob.BackgroundColor3=role(value and "Accent" or "TextSub") end
+        end
+        toggle:Set(default==true,true)
+    end
+    return group
+end
+Section.MasterToggle=Section.CheckboxToggle
 Section.ToggleWithDropdown=Section.CollapsibleToggle
 
 function Window:_RefreshHotkeys()
@@ -1337,9 +1365,10 @@ function Window:_RefreshHotkeys()
     end
 end
 
-function Window:Notification(title,message,duration)
+function Window:Notification(title,message,duration,variant)
     alive(self)
     if not self.NotificationsEnabled then return nil end
+    if type(duration)=="string" then variant=duration; duration=nil end
     duration=duration or self.NotificationDuration
     assert(finite(duration) and duration>=0,"JLXUI: duration must be nonnegative")
     if not self._notifications then
@@ -1372,7 +1401,9 @@ function Window:Notification(title,message,duration)
     n.container.LayoutOrder=self._notificationSequence
     property(n,n.container,"BackgroundColor3",role("Elevated")); n.container.BackgroundTransparency=0
     round(n,n.container,8); stroke(n,n.container,role("Stroke"))
-    text(n,n.container,title,{Size=UDim2.new(1,-42,0,26),TextSize=13})
+    local variantColors={success=Color3.fromRGB(34,197,94),warning=Color3.fromRGB(245,158,11),error=Color3.fromRGB(239,68,68),info=role("Accent")}
+    local accent=make(n,"Frame",n.container,{Size=UDim2.new(0,3,1,-12),Position=UDim2.new(0,5,0,6),BackgroundColor3=variantColors[string.lower(tostring(variant or "info"))] or role("Accent"),BorderSizePixel=0}); round(n,accent,2)
+    text(n,n.container,title,{Size=UDim2.new(1,-42,0,26),Position=UDim2.new(0,16,0,0),TextSize=13,TextColor3=variantColors[string.lower(tostring(variant or "info"))] or role("Text")})
     text(n,n.container,message,{Size=UDim2.new(1,-20,0,44),Position=UDim2.new(0,10,0,28),
         TextWrapped=true,TextTruncate=Enum.TextTruncate.None,TextYAlignment=Enum.TextYAlignment.Top,TextColor3=role("TextSub")})
     local close=smallButton(n,n.container,"×",24); close.Position=UDim2.new(1,-30,0,4)
@@ -1388,9 +1419,9 @@ function Window:Notification(title,message,duration)
     end
     return n
 end
-function Library:Notification(title,message,duration)
+function Library:Notification(title,message,duration,variant)
     assert(self._last and not self._last.Destroyed,"JLXUI: create a window first")
-    return self._last:Notification(title,message,duration)
+    return self._last:Notification(title,message,duration,variant)
 end
 function Library:Destroy()
     while next(self._windows) do select(2,next(self._windows)):Destroy() end
