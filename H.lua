@@ -4,7 +4,7 @@ local Http = game:GetService("HttpService")
 local TweenService = game:GetService("TweenService")
 local RunService = game:GetService("RunService")
 
-local Library = {Version = "1.5.0", _windows = {}, _sessionFiles = {}}
+local Library = {Version = "1.5.1", _windows = {}, _sessionFiles = {}}
 local Base, Window, Tab, Section, Control = {}, {}, {}, {}, {}
 Base.__index = Base
 for _, class in ipairs({Window, Tab, Section, Control}) do
@@ -578,7 +578,9 @@ function Library:New(options)
         restoreX,restoreY=p.X,p.Y
     end)
     local dragStart, startPos
-    drag(w,title,function(input)
+    local headerDrag=make(w,"Frame",w.container,{Name="HeaderDrag",Size=UDim2.new(1,-376,0,38),BackgroundTransparency=1,Active=true,ZIndex=4})
+    w._headerDrag=headerDrag
+    drag(w,headerDrag,function(input)
         local delta = input.Position - dragStart
         w.container.Position = UDim2.new(startPos.X.Scale,startPos.X.Offset+delta.X,
             startPos.Y.Scale,startPos.Y.Offset+delta.Y)
@@ -641,7 +643,11 @@ function Library:New(options)
     w._hotkeyRows={}
     w._hotkeyOverlay=frame(w,w.Gui,0,true)
     w._hotkeyOverlay.Size=UDim2.new(0,190,0,0); w._hotkeyOverlay.Position=UDim2.new(1,-205,0,50); w._hotkeyOverlay.AutomaticSize=Enum.AutomaticSize.Y; w._hotkeyOverlay.Visible=true
-    list(w,w._hotkeyOverlay,4)
+    w._hotkeyOverlay.BackgroundTransparency=0.15
+    property(w,w._hotkeyOverlay,"BackgroundColor3",role("Bg"))
+    round(w,w._hotkeyOverlay,5)
+    list(w,w._hotkeyOverlay,0)
+    text(w,w._hotkeyOverlay,"Active Hotkeys",{Size=UDim2.new(1,0,0,26),LayoutOrder=-1,Font=Enum.Font.GothamBold,TextXAlignment=Enum.TextXAlignment.Center})
     self._windows[id], self._last = w, w
     if options.Configuration ~= false then w:_BuildConfiguration() end
     w:_RefreshHotkeys()
@@ -731,16 +737,22 @@ function Window:Tab(title, icon)
     property(t,t._indicator,"BackgroundColor3",role("Accent"))
     t._indicator.BackgroundTransparency=1
     round(t,t._indicator,2)
-    t._hint=text(t,self.container,title,{Size=UDim2.new(0,150,0,26),Position=UDim2.new(0,54,0,42),
+    t._hint=text(t,self._viewport,title,{Size=UDim2.new(0,150,0,26),Position=UDim2.new(0,54,0,42),
         BackgroundTransparency=0,BackgroundColor3=role("Elevated"),ZIndex=20,Visible=false})
     round(t,t._hint,5)
-    connect(t,t._button.MouseEnter,function()
-        local p=Input:GetMouseLocation(); local vp=self._window._viewport; local base=self._window.container.AbsolutePosition
+    local function positionHint()
+        local p=Input:GetMouseLocation(); local vp=self._viewport
         if vp then
-            local x=math.clamp(p.X-base.X+10,8,math.max(8,self._window.container.AbsoluteSize.X-158))
-            local y=math.clamp(p.Y-base.Y+10,8,math.max(8,self._window.container.AbsoluteSize.Y-34))
+            local x=math.clamp(p.X-vp.AbsolutePosition.X+12,8,math.max(8,vp.AbsoluteSize.X-158))
+            local y=math.clamp(p.Y-vp.AbsolutePosition.Y+12,8,math.max(8,vp.AbsoluteSize.Y-34))
             t._hint.Position=UDim2.new(0,x,0,y)
         end
+    end
+    connect(t,Input.InputChanged,function(input)
+        if t._hint.Visible and input.UserInputType==Enum.UserInputType.MouseMovement then positionHint() end
+    end)
+    connect(t,t._button.MouseEnter,function()
+        positionHint()
         t._hint.Visible=true
         animate(t,t._icon,{ImageTransparency=0},0.16,"hover")
     end)
@@ -764,19 +776,25 @@ function Window:PlayerTeleportTab(title)
     alive(self)
     local tab=self:Tab(title or "ALL","MapPin")
     local section=tab:Section("Quick player teleports")
-    section:Dropdown("Show",{"ALL","PLAYERS","ITEMS","GENERATORS","PALLETS","VAULTS","GATES","HOOKS"},"ALL")
+    local column=section:CollapsibleGroup("Teleport destinations",true)
+    column._header.Visible=false
+    local selector=column:Dropdown("Show",{"ALL","PLAYERS","ITEMS","GENERATORS","PALLETS","VAULTS","GATES","HOOKS"},"PLAYERS")
+    column.content:FindFirstChildOfClass("UIListLayout").Padding=UDim.new(0,0)
+    property(column,column.container,"BackgroundColor3",role("Card"))
+    column.container.BackgroundTransparency=0.2
+    round(column,column.container,6); stroke(column,column.container,role("StrokeDim"))
+    local selected="PLAYERS"
     local rows={}
     local function remove(player)
         local row=rows[player]
         if row then row:Destroy(); rows[player]=nil end
     end
     local function add(player)
-        if player==Players.LocalPlayer or rows[player] then return end
-        local row=node(Control,section,self)
+        if (selected~="ALL" and selected~="PLAYERS") or player==Players.LocalPlayer or rows[player] then return end
+        local row=node(Control,column,self)
         row._searchText=player.Name:lower()
         self._searchControls[row]=true
-        row.container=frame(row,section.content,32)
-        round(row,row.container,5); stroke(row,row.container,role("StrokeDim"))
+        row.container=frame(row,column.content,28,true)
         local accent=make(row,"Frame",row.container,{Size=UDim2.new(0,3,0,22),Position=UDim2.new(0,8,0.5,-11),BackgroundColor3=role("Accent"),BorderSizePixel=0})
         round(row,accent,2)
         local label=text(row,row.container,player.DisplayName .. "  [" .. player.Name .. "]",{Size=UDim2.new(0.62,0,1,0),Position=UDim2.new(0,20,0,0),TextSize=11})
@@ -790,10 +808,25 @@ function Window:PlayerTeleportTab(title)
         end)
         rows[player]=row
     end
-    for _,player in ipairs(Players:GetPlayers()) do add(player) end
-    connect(self,Players.PlayerAdded,add)
-    connect(self,Players.PlayerRemoving,remove)
-    connect(self,RunService.RenderStepped,function()
+    local empty=column:Label("No destinations")
+    local function refresh(category)
+        selected=category or selected
+        for player in pairs(rows) do remove(player) end
+        for _,player in ipairs(Players:GetPlayers()) do add(player) end
+        empty.container.Visible=next(rows)==nil
+    end
+    selector._callback=refresh
+    tab.Selector=selector
+    tab.Refresh=function() refresh() end
+    tab._destinationRows=rows
+    refresh()
+    connect(tab,Players.PlayerAdded,function(player) add(player); empty.container.Visible=next(rows)==nil end)
+    connect(tab,Players.PlayerRemoving,function(player) remove(player); empty.container.Visible=next(rows)==nil end)
+    local elapsed=0
+    connect(tab,RunService.RenderStepped,function(dt)
+        elapsed=elapsed+(dt or 0.25)
+        if elapsed<0.25 or self._activeTab~=tab then return end
+        elapsed=0
         local root=Players.LocalPlayer.Character and Players.LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
         if not root then return end
         for player,row in pairs(rows) do
@@ -848,6 +881,7 @@ end
 Window.CreateCommunityTab=Window.CommunityTab
 function Tab:Select()
     alive(self)
+    if self.Refresh then self:Refresh() end
     local w = self._window
     for tab in pairs(w._tabs) do
         if tab ~= self then tab.container.Visible = false end
@@ -1392,7 +1426,7 @@ function Window:_RefreshHotkeys()
     self._hotkeyOverlay.Visible=true
     for bind in pairs(self._binds) do
         if not bind.Destroyed and bind.Value and bind.Value~=Enum.KeyCode.Unknown then
-            local row=node(Control,self,self); row.container=frame(row,self._hotkeyOverlay,24); row.container.Size=UDim2.new(1,0,0,24); round(row,row.container,5)
+            local row=node(Control,self,self); row.container=frame(row,self._hotkeyOverlay,20,true); row.container.Size=UDim2.new(1,0,0,20)
             text(row,row.container,bind._displayTitle or "Hotkey",{Size=UDim2.new(0.68,0,1,0),TextSize=10})
             text(row,row.container,bind.Value.Name,{Size=UDim2.new(0.3,0,1,0),Position=UDim2.new(0.68,0,0,0),TextXAlignment=Enum.TextXAlignment.Right,TextSize=10,TextColor3=role("TextSub")})
             self._hotkeyRows[#self._hotkeyRows+1]=row
