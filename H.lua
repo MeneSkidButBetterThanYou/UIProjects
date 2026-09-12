@@ -4,7 +4,7 @@ local Http = game:GetService("HttpService")
 local TweenService = game:GetService("TweenService")
 local RunService = game:GetService("RunService")
 
-local Library = {Version = "1.5.9", _windows = {}, _sessionFiles = {}}
+local Library = {Version = "1.6.0", _windows = {}, _sessionFiles = {}}
 local Base, Window, Tab, Section, Control = {}, {}, {}, {}, {}
 Base.__index = Base
 for _, class in ipairs({Window, Tab, Section, Control}) do
@@ -515,13 +515,8 @@ function Library:New(options)
     w._storage, w.StorageMode = getStorage(options.Storage)
     local width, height = options.Width or 720, options.Height or 470
     assert(finite(width) and width >= 400 and finite(height) and height >= 250, "JLXUI: window size is too small")
-    w.Gui = make(w, "ScreenGui", parent, {
-    Name = guiName,
-    ResetOnSpawn = false,
-    IgnoreGuiInset = true,
-    ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
-    DisplayOrder = options.DisplayOrder or 100
-})
+    w.Gui = make(w,"ScreenGui",parent,{Name=guiName,ResetOnSpawn=false,
+        ZIndexBehavior=Enum.ZIndexBehavior.Sibling, DisplayOrder=options.DisplayOrder or 100})
     w.container = frame(w,w.Gui,height,nil,"CanvasGroup")
     w.container.Name = "Main"
     w.container.Size = UDim2.new(0,width,0,height)
@@ -598,7 +593,7 @@ function Library:New(options)
         TextXAlignment=Enum.TextXAlignment.Center,BackgroundTransparency=0,
         BackgroundColor3=role("Elevated"),Visible=false},"TextButton")
     round(w,w._restore)
-    w.MobileToggleEnabled=options.MobileToggle~=false and Input.TouchEnabled==true
+    w.MobileToggleEnabled=options.MobileToggle==true and Input.TouchEnabled==true
     local mobile=text(w,w.Gui,"UI",{Name="MobileToggle",Size=UDim2.new(0,52,0,52),Position=UDim2.new(0,18,1,-70),AnchorPoint=Vector2.new(0,1),TextXAlignment=Enum.TextXAlignment.Center,TextYAlignment=Enum.TextYAlignment.Center,TextSize=14,Font=Enum.Font.GothamBold,BackgroundTransparency=0,BackgroundColor3=role("Elevated"),Visible=w.MobileToggleEnabled,Active=true},"TextButton")
     round(w,mobile,26); stroke(w,mobile,role("Stroke")); w._mobileToggle=mobile
     local mobileStart,mobileOrigin,mobileMoved
@@ -1071,6 +1066,18 @@ function Section:Toggle(title, default, flag, callback, key)
     bind._button.Size=UDim2.new(0,46,0,24); bind._button.Position=UDim2.new(1,-96,0.5,-12)
     bind._button.BackgroundTransparency=1
     bind._button.TextSize=9
+    if Input.TouchEnabled==true then
+        bind._mobileAction=true
+        bind._button.BackgroundTransparency=0
+        property(c,bind._button,"BackgroundColor3",role("Elevated"))
+        round(c,bind._button,6); stroke(c,bind._button,role("StrokeDim"))
+        bind._button.Size=UDim2.new(0,64,0,30); bind._button.Position=UDim2.new(1,-112,0.5,-15)
+        bind._button.TextSize=11
+        connect(c,bind._button.Activated,function()
+            if c._window._capture==bind then return end
+            c:Set(not c.Value)
+        end)
+    end
     c._inlineBind=bind
     return c
 end
@@ -1300,6 +1307,7 @@ function Section:Bind(title,default,hold,flag,callback)
     c._window._binds[c]=true
     if c._window._RefreshHotkeys then c._window:_RefreshHotkeys() end
     connect(c,c._button.Activated,function()
+        if c._mobileAction then return end
         cancelCapture(c._window)
         releaseHolds(c._window)
         if c.Destroyed then return end
