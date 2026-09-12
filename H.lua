@@ -3,7 +3,7 @@ local Input = game:GetService("UserInputService")
 local Http = game:GetService("HttpService")
 local TweenService = game:GetService("TweenService")
 
-local Library = {Version = "1.3.0", _windows = {}, _sessionFiles = {}}
+local Library = {Version = "1.4.5", _windows = {}, _sessionFiles = {}}
 local Base, Window, Tab, Section, Control = {}, {}, {}, {}, {}
 Base.__index = Base
 for _, class in ipairs({Window, Tab, Section, Control}) do
@@ -491,8 +491,11 @@ function Library:New(options)
     connect(w,viewport:GetPropertyChangedSignal("AbsoluteSize"),fit)
     fit()
     w._searchControls = {}
-    local title = text(w,w.container,options.Name or "JLXUI",{Size=UDim2.new(1,-390,0,38),TextSize=14})
+    local title = text(w,w.container,options.Name or "JLXUI",{Size=UDim2.new(1,-390,0,38),TextSize=14,TextYAlignment=Enum.TextYAlignment.Center})
     title.Active = true
+    local version = text(w,w.container,options.Version or "v1.4.5",{Size=UDim2.new(0,54,0,38),Position=UDim2.new(0,110,0,0),
+        TextColor3=role("TextSub"),TextSize=10,TextYAlignment=Enum.TextYAlignment.Center})
+    w.VersionLabel = version
     local search = text(w,w.container,"",{Size=UDim2.new(0,230,0,28),Position=UDim2.new(1,-334,0,5),
         BackgroundTransparency=0,BackgroundColor3=role("Elevated"),TextColor3=role("Text"),
         PlaceholderText="⌕  Search...  (Ctrl+F)",PlaceholderColor3=role("Muted"),
@@ -504,17 +507,28 @@ function Library:New(options)
     minimize.Position = UDim2.new(1,-74,0,8)
     local close = smallButton(w,w.container,"×",28)
     close.Position = UDim2.new(1,-38,0,8)
-    w._body = frame(w,w.container,height-64,true)
-    w._body.Size = UDim2.new(1,0,1,-64)
-    w._body.Position = UDim2.new(0,0,0,40)
-    w._sidebar = make(w,"ScrollingFrame",w._body,{Size=UDim2.new(0,44,1,-8),
-        Position=UDim2.new(0,4,0,0), BackgroundColor3=role("Sidebar"),BorderSizePixel=0,
-        CanvasSize=UDim2.new(),AutomaticCanvasSize=Enum.AutomaticSize.Y,ScrollBarThickness=2})
+    minimize.BackgroundTransparency = 1
+    close.BackgroundTransparency = 1
+    local minStroke=minimize:FindFirstChildOfClass("UIStroke")
+    local closeStroke=close:FindFirstChildOfClass("UIStroke")
+    if minStroke then minStroke.Transparency=0.75 end
+    if closeStroke then closeStroke.Transparency=0.75 end
+    w._headerLine = make(w,"Frame",w.container,{Size=UDim2.new(1,-16,0,1),Position=UDim2.new(0,8,0,38),
+        BackgroundColor3=role("StrokeDim"),BackgroundTransparency=0,BorderSizePixel=0})
+    w._body = frame(w,w.container,height-68,true)
+    w._body.Size = UDim2.new(1,0,1,-68)
+    w._body.Position = UDim2.new(0,0,0,44)
+    w._sidebar = make(w,"ScrollingFrame",w._body,{Size=UDim2.new(0,44,1,-12),
+        Position=UDim2.new(0,4,0,4), BackgroundColor3=role("Sidebar"),BorderSizePixel=0,
+        CanvasSize=UDim2.new(),AutomaticCanvasSize=Enum.AutomaticSize.Y,ScrollBarThickness=2,
+        ScrollBarImageTransparency=0.35})
     round(w,w._sidebar,8)
     list(w,w._sidebar,4)
     w._content = frame(w,w._body,0,true)
-    w._content.Size = UDim2.new(1,-62,1,-8)
-    w._content.Position = UDim2.new(0,56,0,0)
+    w._content.Size = UDim2.new(1,-62,1,-12)
+    w._content.Position = UDim2.new(0,56,0,4)
+    w._contentLine = make(w,"Frame",w._body,{Size=UDim2.new(0,1,1,-12),Position=UDim2.new(0,52,0,4),
+        BackgroundColor3=role("StrokeDim"),BackgroundTransparency=0,BorderSizePixel=0})
     w._restore = text(w,w.Gui,"Show " .. (options.Name or "JLXUI"), {
         Size=UDim2.new(0,150,0,30),Position=UDim2.new(0,10,0.5,-15),
         TextXAlignment=Enum.TextXAlignment.Center,BackgroundTransparency=0,
@@ -633,6 +647,39 @@ Library.Icons = {
     Layers="rbxassetid://7743868936", Settings="rbxassetid://7734058803",
     Cloud="rbxassetid://7733746980",
 }
+Library.IconSource = "https://raw.githubusercontent.com/latte-soft/lucide-roblox/master/icons/compiled/48px/"
+Library._iconCache = {}
+function Library:SetIconResolver(resolver)
+    assert(type(resolver)=="function","JLXUI: icon resolver must be a function")
+    self.IconResolver=resolver
+end
+local function resolveIcon(icon)
+    if not icon or icon=="" then return Library.Icons.Home end
+    if Library.Icons[icon] then return Library.Icons[icon] end
+    if tostring(icon):match("^rbxasset") or tostring(icon):match("^https?://") then return tostring(icon) end
+    if Library.IconResolver then
+        local ok,result=pcall(Library.IconResolver, tostring(icon))
+        if ok and result then return tostring(result) end
+    end
+    local key=tostring(icon):gsub("%s+","-"):gsub("([a-z0-9])([A-Z])","%1-%2"):lower()
+    local cached=Library._iconCache[key]
+    if cached then return cached end
+    local asset=(getcustomasset or (syn and syn.getcustomasset))
+    if asset and writefile and isfile then
+        local folder="JLXUI_Icons"
+        pcall(function() if not isfolder(folder) then makefolder(folder) end end)
+        local path=folder.."/"..key..".png"
+        if not isfile(path) then
+            local ok,data=pcall(function() return game:HttpGet(Library.IconSource..key..".png") end)
+            if ok and data and #data>50 then pcall(writefile,path,data) end
+        end
+        if isfile(path) then
+            local ok,result=pcall(asset,path)
+            if ok and result then Library._iconCache[key]=result; return result end
+        end
+    end
+    return Library.Icons.Home
+end
 function Window:Tab(title, icon)
     alive(self)
     local t = node(Tab,self,self)
@@ -641,7 +688,7 @@ function Window:Tab(title, icon)
     t._button = text(t,self._sidebar,"",{Size=UDim2.new(0,36,0,38),Position=UDim2.new(),
         BackgroundColor3=role("Card"),BackgroundTransparency=1},"TextButton")
     round(t,t._button,7)
-    local image=Library.Icons[icon] or icon or Library.Icons.Home
+    local image=resolveIcon(icon)
     t._icon=make(t,"ImageLabel",t._button,{Size=UDim2.new(0,21,0,21),Position=UDim2.new(0.5,-10,0.5,-10),
         BackgroundTransparency=1,Image=tostring(image),ImageColor3=role("Text"),ImageTransparency=0.4})
     t._indicator=frame(t,t._button,24)
@@ -676,15 +723,18 @@ function Tab:Select()
     alive(self)
     local w = self._window
     for tab in pairs(w._tabs) do
-        tab.container.Visible = tab == self
+        if tab ~= self then tab.container.Visible = false end
         animate(tab,tab._button,{BackgroundTransparency=tab==self and 0 or 1},0.20,"selection")
         animate(tab,tab._icon,{ImageTransparency=tab==self and 0 or 0.4},0.20,"hover")
         animate(tab,tab._indicator,{BackgroundTransparency=tab==self and 0 or 1},0.20,"selection")
         tab._hint.Visible=false
         property(tab,tab._button,"TextColor3",role(tab == self and "Text" or "TextSub"))
     end
-    self.container.Position=UDim2.new(0,0,0,7)
-    animate(self,self.container,{Position=UDim2.new()},0.22,"page")
+    self.container.Visible=true
+    self.container.Position=UDim2.new(0,0,0,12)
+    task.defer(function()
+        if not self.Destroyed and w._activeTab==self then animate(self,self.container,{Position=UDim2.new()},0.26,"page") end
+    end)
     w._activeTab = self
     w._drag = nil
     cancelCapture(w)
@@ -694,9 +744,13 @@ function Tab:Section(title)
     local s = node(Section,self,self._window)
     s.container = autoFrame(s,self.content)
     s._title = text(s,s.container,string.upper(tostring(title)),{
-        Size=UDim2.new(1,-8,0,22),Position=UDim2.new(),TextSize=11,TextColor3=role("TextSub")})
+        Size=UDim2.new(1,-8,0,24),Position=UDim2.new(),TextSize=10,TextColor3=role("TextSub"),
+        TextYAlignment=Enum.TextYAlignment.Center})
+    s._rule = make(s,"Frame",s.container,{Size=UDim2.new(1,-8,0,1),Position=UDim2.new(0,0,0,24),
+        BackgroundColor3=role("StrokeDim"),BackgroundTransparency=0,BorderSizePixel=0})
     s.content = autoFrame(s,s.container)
     s.content.LayoutOrder=1
+    s.content.Position=UDim2.new(0,0,0,28)
     connect(s,s.container.Destroying,function() s:Destroy() end)
     return s
 end
