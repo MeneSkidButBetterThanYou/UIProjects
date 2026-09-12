@@ -242,9 +242,10 @@ local function text(owner, parent, value, props, class)
     for k,v in pairs(props or {}) do p[k] = v end
     return make(owner, class or "TextLabel", parent, p)
 end
-local function smallButton(owner, parent, title, width)
+local function smallButton(owner, parent, title, width, height)
+    height=height or 22
     local b = text(owner, parent, title, {
-        Size = UDim2.new(0,width or 90,0,22), Position = UDim2.new(1,-(width or 90)-10,0.5,-11),
+        Size = UDim2.new(0,width or 90,0,height), Position = UDim2.new(1,-(width or 90)-10,0.5,-height/2),
         TextXAlignment = Enum.TextXAlignment.Center, BackgroundTransparency = 0,
         BackgroundColor3=role("Elevated"), TextSize = 11,
     }, "TextButton")
@@ -492,24 +493,31 @@ function Library:New(options)
     connect(w,viewport:GetPropertyChangedSignal("AbsoluteSize"),fit)
     fit()
     w._searchControls = {}
-    local title = text(w,w.container,options.Name or "JLXUI",{Size=UDim2.new(1,-390,0,38),TextSize=14,TextYAlignment=Enum.TextYAlignment.Center})
+    w._viewport=viewport
+    local title = text(w,w.container,options.Name or "JLXUI",{Size=UDim2.new(0,110,0,38),TextSize=14,Font=Enum.Font.GothamBold,TextYAlignment=Enum.TextYAlignment.Center})
     title.Active = true
-    local version = text(w,w.container,options.Version or "v1.4.5",{Size=UDim2.new(0,54,0,38),Position=UDim2.new(0,110,0,0),
+    local version = text(w,w.container,options.Version or "v1.4.5",{Size=UDim2.new(0,54,0,38),Position=UDim2.new(0,0,0,0),
         TextColor3=role("TextSub"),TextSize=10,TextYAlignment=Enum.TextYAlignment.Center})
     w.VersionLabel = version
-    local search = text(w,w.container,"",{Size=UDim2.new(0,230,0,28),Position=UDim2.new(1,-334,0,5),
+    connect(w,title:GetPropertyChangedSignal("TextBounds"),function()
+        local bounds=title.TextBounds
+        if bounds and bounds.X then version.Position=UDim2.new(0,16+bounds.X,0,0) end
+    end)
+    task.defer(function()
+        if not title.Destroyed then local bounds=title.TextBounds; if bounds and bounds.X then version.Position=UDim2.new(0,16+bounds.X,0,0) end end
+    end)
+    local search = text(w,w.container,"",{Size=UDim2.new(0,250,0,30),Position=UDim2.new(1,-370,0,4),
         BackgroundTransparency=0,BackgroundColor3=role("Elevated"),TextColor3=role("Text"),
         PlaceholderText="⌕  Search...  (Ctrl+F)",PlaceholderColor3=role("Muted"),
         ClearTextOnFocus=false,TextSize=11},"TextBox")
-    round(w,search,7); stroke(w,search,role("StrokeDim"))
+    round(w,search,7); stroke(w,search,role("StrokeDim")); make(w,"UIPadding",search,{PaddingLeft=UDim.new(0,10),PaddingRight=UDim.new(0,8)})
     w.SearchBox = search
     connect(w,search:GetPropertyChangedSignal("Text"),function() w:_Search(search.Text) end)
-    local minimize = smallButton(w,w.container,"−",28)
-    minimize.Position = UDim2.new(1,-74,0,8)
-    local close = smallButton(w,w.container,"×",28)
-    close.Position = UDim2.new(1,-38,0,8)
-    minimize.BackgroundTransparency = 1
-    close.BackgroundTransparency = 1
+    local minimize = smallButton(w,w.container,"−",32,28)
+    minimize.Position = UDim2.new(1,-82,0,5)
+    local close = smallButton(w,w.container,"×",32,28)
+    close.Position = UDim2.new(1,-42,0,5)
+    minimize.TextSize=18; close.TextSize=18
     local minStroke=minimize:FindFirstChildOfClass("UIStroke")
     local closeStroke=close:FindFirstChildOfClass("UIStroke")
     if minStroke then minStroke.Transparency=0.75 end
@@ -521,8 +529,8 @@ function Library:New(options)
     w._body.Position = UDim2.new(0,0,0,44)
     w._sidebar = make(w,"ScrollingFrame",w._body,{Size=UDim2.new(0,44,1,-12),
         Position=UDim2.new(0,4,0,4), BackgroundColor3=role("Sidebar"),BorderSizePixel=0,
-        CanvasSize=UDim2.new(),AutomaticCanvasSize=Enum.AutomaticSize.Y,ScrollBarThickness=2,
-        ScrollBarImageTransparency=0.35})
+        CanvasSize=UDim2.new(),AutomaticCanvasSize=Enum.AutomaticSize.Y,ScrollBarThickness=0,
+        ScrollBarImageTransparency=1})
     round(w,w._sidebar,8)
     list(w,w._sidebar,4)
     w._content = frame(w,w._body,0,true)
@@ -567,8 +575,8 @@ function Library:New(options)
         w.container.Position = UDim2.new(startPos.X.Scale,startPos.X.Offset+delta.X,
             startPos.Y.Scale,startPos.Y.Offset+delta.Y)
     end,function(input) dragStart=input.Position; startPos=w.container.Position end)
-    local resize=text(w,w.container,"↘  Resize",{Size=UDim2.new(0,88,0,20),Position=UDim2.new(1,-96,1,-23),
-        TextColor3=role("TextSub"),TextSize=10,TextXAlignment=Enum.TextXAlignment.Right},"TextButton")
+    local resize=smallButton(w,w.container,"↘  Drag to Resize",106,26)
+    resize.Position=UDim2.new(1,-114,1,-31); resize.TextSize=10; resize.BackgroundTransparency=0.12
     local resizeStart,resizeWidth,resizeHeight,resizeScale
     drag(w,resize,function(input)
         local delta=input.Position-resizeStart
@@ -621,8 +629,14 @@ function Library:New(options)
     end)
     connect(w,Input.WindowFocusReleased,function() w._drag=nil; cancelCapture(w); releaseHolds(w) end)
     connect(w,w.Gui.Destroying,function() w:Destroy() end)
+    w.ShowActiveHotkeys=options.ShowActiveHotkeys~=false
+    w._hotkeyRows={}
+    w._hotkeyOverlay=frame(w,w.Gui,0,true)
+    w._hotkeyOverlay.Size=UDim2.new(0,190,0,0); w._hotkeyOverlay.Position=UDim2.new(1,-205,0,50); w._hotkeyOverlay.AutomaticSize=Enum.AutomaticSize.Y; w._hotkeyOverlay.Visible=true
+    list(w,w._hotkeyOverlay,4)
     self._windows[id], self._last = w, w
     if options.Configuration ~= false then w:_BuildConfiguration() end
+    w:_RefreshHotkeys()
     w.container.GroupTransparency=1
     animate(w,w.container,{GroupTransparency=0},0.28,"visibility")
     return w
@@ -701,6 +715,12 @@ function Window:Tab(title, icon)
         BackgroundTransparency=0,BackgroundColor3=role("Elevated"),ZIndex=20,Visible=false})
     round(t,t._hint,5)
     connect(t,t._button.MouseEnter,function()
+        local p=Input:GetMouseLocation(); local vp=self._window._viewport
+        if vp then
+            local x=math.clamp(p.X-vp.AbsolutePosition.X+10,8,math.max(8,vp.AbsoluteSize.X-158))
+            local y=math.clamp(p.Y-vp.AbsolutePosition.Y+10,8,math.max(8,vp.AbsoluteSize.Y-34))
+            t._hint.Position=UDim2.new(0,x,0,y)
+        end
         t._hint.Visible=true
         animate(t,t._icon,{ImageTransparency=0},0.16,"hover")
     end)
@@ -724,6 +744,7 @@ function Window:PlayerTeleportTab(title)
     alive(self)
     local tab=self:Tab(title or "ALL","MapPin")
     local section=tab:Section("Quick player teleports")
+    section:Dropdown("Show",{"ALL","PLAYERS","ITEMS","GENERATORS","PALLETS","VAULTS","GATES","HOOKS"},"ALL")
     local rows={}
     local function remove(player)
         local row=rows[player]
@@ -846,6 +867,7 @@ function Section:Button(title, callback)
     local c = valueControl(self,title,"Button",nil,callback)
     c._title.Size = UDim2.new(1,-120,1,0)
     local b = smallButton(c,c.container,"TRIGGER")
+    c.button=b
     connect(c,b.Activated,function() c:Press() end)
     return c
 end
@@ -1082,11 +1104,24 @@ function Section:Textbox(title,disappear,callback)
     end)
     return c
 end
+function Section:TextboxButton(title,buttonTitle,callback)
+    local c=valueControl(self,title,"TextboxButton",nil,callback,56)
+    c._title.Size=UDim2.new(1,-20,0,22)
+    local box=text(c,c.container,"",{Size=UDim2.new(1,-116,0,24),Position=UDim2.new(0,10,0,26),BackgroundTransparency=0,BackgroundColor3=role("Elevated"),ClearTextOnFocus=false,PlaceholderText="Enter text...",PlaceholderColor3=role("Muted")},"TextBox")
+    round(c,box,4); c.textBox=box
+    local button=smallButton(c,c.container,buttonTitle or "SEND",92); button.Position=UDim2.new(1,-102,0,26); c.button=button
+    c._set=function(control,value,silent) box.Text=tostring(value); publish(control,box.Text,silent) end
+    c:Set("",true)
+    connect(c,button.Activated,function() publish(c,box.Text,false) end)
+    connect(c,box.FocusLost,function() publish(c,box.Text,false) end)
+    return c
+end
 function Section:Bind(title,default,hold,flag,callback)
     local c=valueControl(self,title,"Bind",flag,callback)
     c._title.Size=UDim2.new(1,-110,1,0)
     c._button=smallButton(c,c.container,"None",90)
     c._hold=hold==true
+    c._displayTitle=title
     c._set=function(control,value,silent)
         assert(typeof(value)=="EnumItem" and value.EnumType==Enum.KeyCode,"JLXUI: Bind:Set expects Enum.KeyCode")
         if control._held then control._held=false; call(control._callback,false) end
@@ -1096,6 +1131,7 @@ function Section:Bind(title,default,hold,flag,callback)
     end
     c:Set(default or Enum.KeyCode.Unknown,true)
     c._window._binds[c]=true
+    if c._window._RefreshHotkeys then c._window:_RefreshHotkeys() end
     connect(c,c._button.Activated,function()
         cancelCapture(c._window)
         releaseHolds(c._window)
@@ -1206,7 +1242,28 @@ function Section:ColorPalette(title, colors, default, flag, callback)
     c:Set(default or colors[1],true)
     return c
 end
-Section.ColorDropdown=Section.ColorPalette
+function Section:ColorDropdown(title, colors, default, flag, callback)
+    local c=valueControl(self,title,"ColorDropdown",flag,callback,38)
+    colors=colors or {Color3.fromRGB(239,68,68),Color3.fromRGB(245,158,11),Color3.fromRGB(250,204,21),Color3.fromRGB(34,197,94),Color3.fromRGB(6,182,212),Color3.fromRGB(59,130,246),Color3.fromRGB(168,85,247),Color3.fromRGB(236,72,153),Color3.fromRGB(255,255,255),Color3.fromRGB(156,163,175)}
+    local preview=frame(c,c.container,22); preview.Size=UDim2.new(0,28,0,22); preview.Position=UDim2.new(1,-72,0.5,-11); preview.BackgroundTransparency=0; round(c,preview,6); c._preview=preview
+    local value=text(c,c.container,"",{Size=UDim2.new(0,26,0,26),Position=UDim2.new(1,-40,0.5,-13),Text="⌄",TextXAlignment=Enum.TextXAlignment.Center,TextSize=14},"TextButton")
+    local viewport=frame(c,c.container,0,true); viewport.Position=UDim2.new(0,0,1,2); viewport.Size=UDim2.new(1,0,0,0); viewport.ClipsDescendants=true; viewport.Visible=false; round(c,viewport,5); stroke(c,viewport,role("StrokeDim")); viewport.BackgroundColor3=role("Card")
+    local row=make(c,"Frame",viewport,{Size=UDim2.new(1,-12,0,34),Position=UDim2.new(0,6,0,6),BackgroundTransparency=1})
+    make(c,"UIListLayout",row,{FillDirection=Enum.FillDirection.Horizontal,HorizontalAlignment=Enum.HorizontalAlignment.Left,Padding=UDim.new(0,7)})
+    local open=false
+    local function resize() viewport.Size=UDim2.new(1,0,0,open and 46 or 0) end
+    local function setOpen(v) open=v; viewport.Visible=true; animate(c,viewport,{Size=UDim2.new(1,0,0,v and 46 or 0)},0.2,"dropdown",function() if not open then viewport.Visible=false end end); value.Text=v and "⌃" or "⌄" end
+    connect(c,value.Activated,function() setOpen(not open) end)
+    c._set=function(control,color,silent)
+        assert(typeof(color)=="Color3","JLXUI: palette value must be Color3")
+        control.Value=color; if control.Flag then control._window.Flags[control.Flag]=color end; preview.BackgroundColor3=color; if not silent then call(control._callback,color) end
+    end
+    for _,color in ipairs(colors) do
+        local sw=frame(c,row,24); sw.Size=UDim2.new(0,24,0,24); sw.BackgroundTransparency=0; sw.BackgroundColor3=color; round(c,sw,12); stroke(c,sw,role("Stroke")); local hit=text(c,sw,"",{Size=UDim2.new(1,0,1,0),Position=UDim2.new(),BackgroundTransparency=1},"TextButton"); connect(c,hit.Activated,function() c:Set(color) end)
+    end
+    c:Set(default or colors[1],true)
+    return c
+end
 
 function Section:CollapsibleGroup(title, expanded)
     local s=node(Section,self,self._window)
@@ -1261,8 +1318,24 @@ function Section:CollapsibleToggle(title,default,flag,callback,key)
     connect(toggle,toggle.container.Destroying,function() if not group.Destroyed then group:Destroy() end end)
     return group
 end
-Section.MasterToggle=Section.Toggle
+Section.MasterToggle=Section.CollapsibleToggle
 Section.ToggleWithDropdown=Section.CollapsibleToggle
+
+function Window:_RefreshHotkeys()
+    if not self._hotkeyOverlay then return end
+    for _,row in ipairs(self._hotkeyRows or {}) do row:Destroy() end
+    self._hotkeyRows={}
+    if self.ShowActiveHotkeys==false then self._hotkeyOverlay.Visible=false; return end
+    self._hotkeyOverlay.Visible=true
+    for bind in pairs(self._binds) do
+        if not bind.Destroyed and bind.Value and bind.Value~=Enum.KeyCode.Unknown then
+            local row=node(Control,self,self); row.container=frame(row,self._hotkeyOverlay,24); row.container.Size=UDim2.new(1,0,0,24); round(row,row.container,5)
+            text(row,row.container,bind._displayTitle or "Hotkey",{Size=UDim2.new(0.68,0,1,0),TextSize=10})
+            text(row,row.container,bind.Value.Name,{Size=UDim2.new(0.3,0,1,0),Position=UDim2.new(0.68,0,0,0),TextXAlignment=Enum.TextXAlignment.Right,TextSize=10,TextColor3=role("TextSub")})
+            self._hotkeyRows[#self._hotkeyRows+1]=row
+        end
+    end
+end
 
 function Window:Notification(title,message,duration)
     alive(self)
@@ -1272,11 +1345,11 @@ function Window:Notification(title,message,duration)
     if not self._notifications then
         self._notifications={}
         self._notificationHost=frame(self,self.Gui,0,true)
-        self._notificationHost.Size=UDim2.new(0.9,0,1,-20)
-        self._notificationHost.Position=UDim2.new(0.1,-10,0,10)
+        self._notificationHost.Size=UDim2.new(0,320,0,0)
+        self._notificationHost.Position=UDim2.new(0,10,0,10)
         local layout=list(self,self._notificationHost,8)
-        layout.HorizontalAlignment=Enum.HorizontalAlignment.Right
-        layout.VerticalAlignment=Enum.VerticalAlignment.Bottom
+        layout.HorizontalAlignment=Enum.HorizontalAlignment.Left
+        layout.VerticalAlignment=Enum.VerticalAlignment.Top
         self._notificationSequence=0
     end
     if #self._notifications>=5 then self._notifications[1]:Destroy() end
@@ -1479,9 +1552,15 @@ function Window:_BuildConfiguration()
     settings:Label("Mobile: minimize, then tap Show to restore")
     controls.Animations=settings:Toggle("UI animations",self.Animations,nil,function(value) self:SetAnimations(value) end)
     controls.Notifications=settings:Toggle("Notifications",true,nil,function(value) self.NotificationsEnabled=value end)
+    controls.Hotkeys=settings:Toggle("Show active hotkeys",self.ShowActiveHotkeys,nil,function(value) self.ShowActiveHotkeys=value; self:_RefreshHotkeys() end)
     controls.Duration=settings:Slider("Notification seconds",5,15,1,0.5,nil,function(value) self.NotificationDuration=value end)
     settings:Button("Hide UI",function() self:SetVisible(false) end)
     settings:Button("Destroy UI",function() self:Destroy() end)
+    local maintenance=tab:Section("Maintenance & Exit")
+    local reset=maintenance:Button("Reset to default settings",function() self:SetTheme("Default"); self:SetScale(1); self.NotificationsEnabled=true end)
+    if reset.button then reset.button.BackgroundColor3=Color3.fromRGB(239,68,68); reset.button.Text="RESET TO DEFAULT SETTINGS" end
+    local unload=maintenance:Button("Unload script & destroy UI",function() self:Destroy() end)
+    if unload.button then unload.button.Text="UNLOAD SCRIPT & DESTROY UI" end
 end
 
 function Window:ExportConfig()
