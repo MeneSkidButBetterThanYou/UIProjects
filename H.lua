@@ -1259,7 +1259,7 @@ function Section:ColorDropdown(title, colors, default, flag, callback)
     colors=colors or {Color3.fromRGB(239,68,68),Color3.fromRGB(245,158,11),Color3.fromRGB(250,204,21),Color3.fromRGB(34,197,94),Color3.fromRGB(6,182,212),Color3.fromRGB(59,130,246),Color3.fromRGB(168,85,247),Color3.fromRGB(236,72,153),Color3.fromRGB(255,255,255),Color3.fromRGB(156,163,175)}
     local preview=frame(c,c.container,22); preview.Size=UDim2.new(0,28,0,22); preview.Position=UDim2.new(1,-72,0.5,-11); preview.BackgroundTransparency=0; round(c,preview,6); c._preview=preview
     local value=text(c,c.container,"",{Size=UDim2.new(0,26,0,26),Position=UDim2.new(1,-40,0.5,-13),Text="⌄",TextXAlignment=Enum.TextXAlignment.Center,TextSize=14},"TextButton")
-    local viewport=frame(c,c.container,0,true); viewport.Position=UDim2.new(0,0,1,2); viewport.Size=UDim2.new(1,0,0,0); viewport.ClipsDescendants=true; viewport.Visible=false; round(c,viewport,5); stroke(c,viewport,role("StrokeDim")); viewport.BackgroundColor3=role("Card")
+    local viewport=frame(c,c.container,0,true); viewport.Position=UDim2.new(0,0,1,2); viewport.Size=UDim2.new(1,0,0,0); viewport.ClipsDescendants=true; viewport.Visible=false; round(c,viewport,5); stroke(c,viewport,role("StrokeDim")); property(c,viewport,"BackgroundColor3",role("Card"))
     local row=make(c,"Frame",viewport,{Size=UDim2.new(1,-12,0,34),Position=UDim2.new(0,6,0,6),BackgroundTransparency=1})
     make(c,"UIListLayout",row,{FillDirection=Enum.FillDirection.Horizontal,HorizontalAlignment=Enum.HorizontalAlignment.Left,Padding=UDim.new(0,7)})
     local open=false
@@ -1285,7 +1285,7 @@ function Section:CollapsibleGroup(title, expanded)
         BackgroundTransparency=0.5,BackgroundColor3=role("Card")},"TextButton")
     round(s,head,s._window.Theme.CardRadius); stroke(s,head,role("StrokeDim"))
     s._title=text(s,head,title,{Position=UDim2.new(0,28,0,0),Size=UDim2.new(1,-38,1,0)})
-    local arrow=text(s,head,"▸",{Size=UDim2.new(0,18,1,0),Position=UDim2.new(0,8,0,0)})
+    local arrow=text(s,head,">",{Size=UDim2.new(0,18,1,0),Position=UDim2.new(0,8,0,0),TextSize=16,TextXAlignment=Enum.TextXAlignment.Center})
     s._header=head
     s._arrow=arrow
     local viewport=frame(s,s.container,0,true); viewport.LayoutOrder=1; viewport.ClipsDescendants=true
@@ -1325,7 +1325,7 @@ function Section:CollapsibleToggle(title,default,flag,callback,key)
     toggle.container.Parent=group.container; toggle.container.LayoutOrder=0
     toggle._title.Position=UDim2.new(0,28,0,0); toggle._title.Size=UDim2.new(1,-132,1,0)
     toggle._hit.Visible=false
-    group._extraArrow=text(toggle,toggle.container,"▸",{Size=UDim2.new(0,16,1,0),Position=UDim2.new(0,9,0,0)})
+    group._extraArrow=text(toggle,toggle.container,">",{Size=UDim2.new(0,20,1,0),Position=UDim2.new(0,5,0,0),TextSize=16,TextXAlignment=Enum.TextXAlignment.Center,ZIndex=5})
     local expandHit=text(toggle,toggle.container,"",{Size=UDim2.new(1,-100,1,0),Position=UDim2.new()},"TextButton")
     connect(toggle,expandHit.Activated,function() group:Expand() end)
     connect(toggle,toggle.container.Destroying,function() if not group.Destroyed then group:Destroy() end end)
@@ -1334,13 +1334,13 @@ end
 function Section:CheckboxToggle(title,default,flag,callback,key)
     local group=self:CollapsibleToggle(title,default,flag,callback,key)
     local toggle=group.ToggleControl
-    if toggle._pill then toggle._pill.Size=UDim2.new(0,20,0,20); toggle._pill.Position=UDim2.new(1,-30,0.5,-10); toggle._pill.BackgroundColor3=role("Elevated") end
-    if toggle._knob then toggle._knob.Size=UDim2.new(0,16,0,16); toggle._knob.Position=UDim2.new(0,2,0.5,-8); toggle._knob.BackgroundColor3=role("TextSub"); round(toggle,toggle._knob,4) end
+    if toggle._pill then toggle._pill.Size=UDim2.new(0,20,0,20); toggle._pill.Position=UDim2.new(1,-30,0.5,-10); property(toggle,toggle._pill,"BackgroundColor3",role("Elevated")) end
+    if toggle._knob then toggle._knob.Size=UDim2.new(0,16,0,16); toggle._knob.Position=UDim2.new(0,2,0.5,-8); property(toggle,toggle._knob,"BackgroundColor3",role("TextSub")); round(toggle,toggle._knob,4) end
     if toggle._set then
         local old=toggle._set
         toggle._set=function(control,value,silent)
             old(control,value,silent)
-            if control._knob then control._knob.BackgroundColor3=role(value and "Accent" or "TextSub") end
+            if control._knob then property(control,control._knob,"BackgroundColor3",role(value and "Accent" or "TextSub")) end
         end
         toggle:Set(default==true,true)
     end
