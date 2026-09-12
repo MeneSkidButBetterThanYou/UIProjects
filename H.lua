@@ -4,7 +4,7 @@ local Http = game:GetService("HttpService")
 local TweenService = game:GetService("TweenService")
 local RunService = game:GetService("RunService")
 
-local Library = {Version = "1.5.2", _windows = {}, _sessionFiles = {}}
+local Library = {Version = "1.5.3", _windows = {}, _sessionFiles = {}}
 local Base, Window, Tab, Section, Control = {}, {}, {}, {}, {}
 Base.__index = Base
 for _, class in ipairs({Window, Tab, Section, Control}) do
@@ -776,14 +776,14 @@ function Window:Tab(title, icon)
     t._indicator.BackgroundTransparency=1
     round(t,t._indicator,2)
     t._hint=text(t,self._viewport,title,{Size=UDim2.new(0,150,0,26),Position=UDim2.new(0,54,0,42),
-        BackgroundTransparency=0,BackgroundColor3=role("Elevated"),ZIndex=20,Visible=false})
+        BackgroundTransparency=0,BackgroundColor3=role("Elevated"),ZIndex=20,Visible=false,TextTruncate=Enum.TextTruncate.None,TextWrapped=false})
     round(t,t._hint,5)
     make(t,"UIPadding",t._hint,{PaddingLeft=UDim.new(0,8),PaddingRight=UDim.new(0,8)})
     local function positionHint()
         local p=t._button.AbsolutePosition; local size=t._button.AbsoluteSize; local vp=self._viewport
         if vp then
-            local bounds=t._hint.TextBounds
-            local width=math.clamp(bounds and bounds.X and bounds.X+16 or #tostring(title)*7+16,48,240)
+            local bounds=game:GetService("TextService"):GetTextSize(t._hint.Text,t._hint.TextSize,t._hint.Font,Vector2.new(1000000,1000000))
+            local width=math.ceil(bounds.X)+16
             t._hint.Size=UDim2.new(0,width,0,26)
             local x=math.clamp(p.X+size.X-vp.AbsolutePosition.X+8,8,math.max(8,vp.AbsoluteSize.X-width-8))
             local y=math.clamp(p.Y+size.Y/2-vp.AbsolutePosition.Y-13,8,math.max(8,vp.AbsoluteSize.Y-34))
@@ -793,6 +793,9 @@ function Window:Tab(title, icon)
     connect(t,t._button:GetPropertyChangedSignal("AbsolutePosition"),function()
         if t._hint.Visible then positionHint() end
     end)
+    for _,key in ipairs({"Text","TextSize","Font"}) do
+        connect(t,t._hint:GetPropertyChangedSignal(key),function() if t._hint.Visible then positionHint() end end)
+    end
     connect(t,t._button.MouseEnter,function()
         for other in pairs(self._tabs) do other._hint.Visible=false end
         positionHint()
