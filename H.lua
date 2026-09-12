@@ -4,7 +4,7 @@ local Http = game:GetService("HttpService")
 local TweenService = game:GetService("TweenService")
 local RunService = game:GetService("RunService")
 
-local Library = {Version = "1.5.3", _windows = {}, _sessionFiles = {}}
+local Library = {Version = "1.5.4", _windows = {}, _sessionFiles = {}}
 local Base, Window, Tab, Section, Control = {}, {}, {}, {}, {}
 Base.__index = Base
 for _, class in ipairs({Window, Tab, Section, Control}) do
@@ -685,7 +685,24 @@ function Library:New(options)
     property(w,w._hotkeyOverlay,"BackgroundColor3",role("Bg"))
     round(w,w._hotkeyOverlay,5)
     list(w,w._hotkeyOverlay,0)
-    text(w,w._hotkeyOverlay,"Active Hotkeys",{Size=UDim2.new(1,0,0,26),LayoutOrder=-1,Font=Enum.Font.GothamBold,TextXAlignment=Enum.TextXAlignment.Center})
+    local hotkeyHeader=text(w,w._hotkeyOverlay,"Active Hotkeys",{Size=UDim2.new(1,0,0,26),LayoutOrder=-1,Font=Enum.Font.GothamBold,TextXAlignment=Enum.TextXAlignment.Center,Active=true})
+    w._hotkeyHeader=hotkeyHeader
+    local hotkeyStart,hotkeyOrigin
+    local function placeHotkeys(x,y)
+        local screen=viewport.AbsoluteSize; local panel=w._hotkeyOverlay.AbsoluteSize
+        w._hotkeyOverlay.Position=UDim2.new(0,math.clamp(x,8,math.max(8,screen.X-panel.X-8)),0,math.clamp(y,8,math.max(8,screen.Y-panel.Y-8)))
+    end
+    drag(w,hotkeyHeader,function(input)
+        local delta=input.Position-hotkeyStart
+        placeHotkeys(hotkeyOrigin.X+delta.X,hotkeyOrigin.Y+delta.Y)
+    end,function(input)
+        hotkeyStart=input.Position
+        hotkeyOrigin=w._hotkeyOverlay.AbsolutePosition-viewport.AbsolutePosition
+    end)
+    connect(w,viewport:GetPropertyChangedSignal("AbsoluteSize"),function()
+        local position=w._hotkeyOverlay.AbsolutePosition-viewport.AbsolutePosition
+        placeHotkeys(position.X,position.Y)
+    end)
     self._windows[id], self._last = w, w
     if options.Configuration ~= false then w:_BuildConfiguration() end
     w:_RefreshHotkeys()
@@ -775,8 +792,8 @@ function Window:Tab(title, icon)
     property(t,t._indicator,"BackgroundColor3",role("Accent"))
     t._indicator.BackgroundTransparency=1
     round(t,t._indicator,2)
-    t._hint=text(t,self._viewport,title,{Size=UDim2.new(0,150,0,26),Position=UDim2.new(0,54,0,42),
-        BackgroundTransparency=0,BackgroundColor3=role("Elevated"),ZIndex=20,Visible=false,TextTruncate=Enum.TextTruncate.None,TextWrapped=false})
+    t._hint=text(t,self._viewport,title,{Name="TabTooltip_1_5_4",Size=UDim2.new(0,0,0,26),AutomaticSize=Enum.AutomaticSize.X,Position=UDim2.new(0,54,0,42),
+        BackgroundTransparency=0,BackgroundColor3=role("Elevated"),ZIndex=20,Visible=false,TextTruncate=Enum.TextTruncate.None,TextWrapped=false,TextScaled=false})
     round(t,t._hint,5)
     make(t,"UIPadding",t._hint,{PaddingLeft=UDim.new(0,8),PaddingRight=UDim.new(0,8)})
     local function positionHint()
@@ -798,6 +815,9 @@ function Window:Tab(title, icon)
     end
     connect(t,t._button.MouseEnter,function()
         for other in pairs(self._tabs) do other._hint.Visible=false end
+        t._hint.TextTruncate=Enum.TextTruncate.None
+        t._hint.TextWrapped=false
+        t._hint.TextScaled=false
         positionHint()
         t._hint.Visible=true
         animate(t,t._icon,{ImageTransparency=0},0.16,"hover")
