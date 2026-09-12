@@ -515,8 +515,13 @@ function Library:New(options)
     w._storage, w.StorageMode = getStorage(options.Storage)
     local width, height = options.Width or 720, options.Height or 470
     assert(finite(width) and width >= 400 and finite(height) and height >= 250, "JLXUI: window size is too small")
-    w.Gui = make(w,"ScreenGui",parent,{Name=guiName,ResetOnSpawn=false,
-        ZIndexBehavior=Enum.ZIndexBehavior.Sibling, DisplayOrder=options.DisplayOrder or 100})
+w.Gui = make(w, "ScreenGui", parent, {
+    Name = guiName,
+    ResetOnSpawn = false,
+    IgnoreGuiInset = true,
+    ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
+    DisplayOrder = options.DisplayOrder or 100
+})
     w.container = frame(w,w.Gui,height,nil,"CanvasGroup")
     w.container.Name = "Main"
     w.container.Size = UDim2.new(0,width,0,height)
