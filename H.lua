@@ -1,8 +1,10 @@
+
 local Players = game:GetService("Players")
 local Input = game:GetService("UserInputService")
 local Http = game:GetService("HttpService")
+local TweenService = game:GetService("TweenService")
 
-local Library = {Version = "1.1.0", _windows = {}, _sessionFiles = {}}
+local Library = {Version = "1.2.0", _windows = {}, _sessionFiles = {}}
 local Base, Window, Tab, Section, Control = {}, {}, {}, {}, {}
 Base.__index = Base
 for _, class in ipairs({Window, Tab, Section, Control}) do
@@ -134,7 +136,7 @@ local function node(class, parent, window)
     if parent then alive(parent) end
     local self = setmetatable({
         Destroyed = false, _children = {}, _connections = {}, _instances = {},
-        _parent = parent, _window = window, _themeBindings = {},
+        _parent = parent, _window = window, _themeBindings = {}, _animations = {},
     }, class)
     if parent then parent._children[self] = true end
     return self
@@ -145,16 +147,64 @@ local function connect(owner, signal, fn)
     return c
 end
 local function role(key) return {_themeRole = key} end
-local function property(owner, obj, key, value)
+local function property(owner, obj, key, value, deferred)
     local bindings = owner._themeBindings[obj]
     if type(value) == "table" and value._themeRole then
         if not bindings then bindings = {}; owner._themeBindings[obj] = bindings end
         bindings[key] = value._themeRole
-        obj[key] = owner._window.Theme[value._themeRole]
+        value = owner._window.Theme[value._themeRole]
     else
         if bindings then bindings[key] = nil end
-        obj[key] = value
     end
+    if not deferred then obj[key] = value end
+    return value
+end
+local function stopAnimation(owner,obj,channel,finish)
+    local slots=owner._animations[obj]
+    local record=slots and slots[channel]
+    if not record then return end
+    slots[channel]=nil
+    if not next(slots) then owner._animations[obj]=nil end
+    record.connection:Disconnect()
+    record.tween:Cancel()
+    record.tween:Destroy()
+    if finish then
+        for key,value in pairs(record.goals) do obj[key]=value end
+        if record.done then record.done() end
+    end
+end
+local function cancelAnimations(owner,finish)
+    while owner._animations and next(owner._animations) do
+        local obj,slots=next(owner._animations)
+        stopAnimation(owner,obj,next(slots),finish)
+    end
+end
+local function animate(owner,obj,goals,seconds,channel,done)
+    if owner.Destroyed then return end
+    channel=channel or "default"
+    stopAnimation(owner,obj,channel,false)
+    local resolved={}
+    for key,value in pairs(goals) do resolved[key]=property(owner,obj,key,value,true) end
+    if owner._window.Animations==false or seconds==0 then
+        for key,value in pairs(resolved) do obj[key]=value end
+        if done then done() end
+        return
+    end
+    local slots=owner._animations[obj] or {}
+    owner._animations[obj]=slots
+    local record={goals=resolved,done=done}
+    local tween=TweenService:Create(obj,TweenInfo.new(seconds or 0.15,Enum.EasingStyle.Quad,Enum.EasingDirection.Out),resolved)
+    record.tween=tween
+    slots[channel]=record
+    record.connection=tween.Completed:Connect(function(state)
+        if owner.Destroyed or not owner._animations[obj] or owner._animations[obj][channel]~=record then return end
+        slots[channel]=nil
+        if not next(slots) then owner._animations[obj]=nil end
+        record.connection:Disconnect()
+        tween:Destroy()
+        if state==Enum.PlaybackState.Completed and done then done() end
+    end)
+    tween:Play()
 end
 local function make(owner, class, parent, props)
     local obj = Instance.new(class)
@@ -169,9 +219,9 @@ end
 local function stroke(owner, obj, color)
     return make(owner, "UIStroke", obj, {Color = color, Thickness = 0.9})
 end
-local function frame(owner, parent, height, transparent)
+local function frame(owner, parent, height, transparent, class)
     local theme = owner._window.Theme
-    return make(owner, "Frame", parent, {
+    return make(owner, class or "Frame", parent, {
         Size = UDim2.new(1,0,0,height or 0), BorderSizePixel = 0,
         BackgroundColor3=role("Card"), BackgroundTransparency = transparent and 1 or 0.5,
     })
@@ -200,12 +250,14 @@ local function smallButton(owner, parent, title, width)
     }, "TextButton")
     round(owner,b)
     stroke(owner,b,role("Stroke"))
+    connect(owner,b.MouseEnter,function() animate(owner,b,{BackgroundColor3=role("CardHover")},0.12,"button") end)
+    connect(owner,b.MouseLeave,function() animate(owner,b,{BackgroundColor3=role("Elevated")},0.16,"button") end)
     return b
 end
 local function hover(owner, obj)
     local theme = owner._window.Theme
-    connect(owner, obj.MouseEnter, function() property(owner,obj,"BackgroundColor3",role("CardHover")) end)
-    connect(owner, obj.MouseLeave, function() property(owner,obj,"BackgroundColor3",role("Card")) end)
+    connect(owner, obj.MouseEnter, function() animate(owner,obj,{BackgroundColor3=role("CardHover")},0.12,"hover") end)
+    connect(owner, obj.MouseLeave, function() animate(owner,obj,{BackgroundColor3=role("Card")},0.16,"hover") end)
 end
 local function autoFrame(owner, parent)
     local f = frame(owner,parent,0,true)
@@ -216,6 +268,7 @@ end
 function Base:Destroy()
     if self.Destroyed then return end
     self.Destroyed = true
+    cancelAnimations(self)
     local w = self._window
     if w and w._drag and w._drag.owner == self then w._drag = nil end
     if w and w._capture == self then w._capture = nil end
@@ -279,7 +332,7 @@ local function releaseHolds(w)
 end
 local function cancelCapture(w)
     if w._capture and not w._capture.Destroyed then
-        w._capture._button.Text = w._capture.Value.Name
+        w._capture._button.Text = w._capture.Value==Enum.KeyCode.Unknown and "NONE" or w._capture.Value.Name
     end
     w._capture = nil
 end
@@ -324,6 +377,10 @@ end
 function Control:Press()
     alive(self)
     call(self._callback)
+end
+function Control:Dismiss()
+    alive(self)
+    if self._dismiss then self:_dismiss() else self:Destroy() end
 end
 
 local function configPath(w,name)
@@ -381,6 +438,8 @@ function Library:New(options)
     for k,v in pairs(THEMES[w.ThemeName]) do w.Theme[k]=v end
     if type(options.Theme)=="table" then for k,v in pairs(options.Theme) do w.Theme[k]=v end end
     w.UserScale, w.BackgroundTransparency = 1, 0
+    w.Animations = options.Animations ~= false
+    w._shown = true
     w.NotificationDuration, w.NotificationsEnabled = 5, true
     w.Flags, w._flags, w._tabs, w._binds = {}, {}, {}, {}
     w.ToggleKey = options.ToggleKey or Enum.KeyCode.RightShift
@@ -390,7 +449,7 @@ function Library:New(options)
     assert(finite(width) and width >= 400 and finite(height) and height >= 250, "JLXUI: window size is too small")
     w.Gui = make(w,"ScreenGui",parent,{Name=guiName,ResetOnSpawn=false,
         ZIndexBehavior=Enum.ZIndexBehavior.Sibling, DisplayOrder=options.DisplayOrder or 100})
-    w.container = frame(w,w.Gui,height)
+    w.container = frame(w,w.Gui,height,nil,"CanvasGroup")
     w.container.Name = "Main"
     w.container.Size = UDim2.new(0,width,0,height)
     w.container.AnchorPoint = Vector2.new(0.5,0.5)
@@ -416,16 +475,17 @@ function Library:New(options)
     minimize.Position = UDim2.new(1,-74,0,8)
     local close = smallButton(w,w.container,"×",28)
     close.Position = UDim2.new(1,-38,0,8)
-    w._body = frame(w,w.container,height-46,true)
+    w._body = frame(w,w.container,height-64,true)
+    w._body.Size = UDim2.new(1,0,1,-64)
     w._body.Position = UDim2.new(0,0,0,40)
-    w._sidebar = make(w,"ScrollingFrame",w._body,{Size=UDim2.new(0,160,1,-8),
-        Position=UDim2.new(0,8,0,0), BackgroundColor3=role("Sidebar"),BorderSizePixel=0,
+    w._sidebar = make(w,"ScrollingFrame",w._body,{Size=UDim2.new(0,44,1,-8),
+        Position=UDim2.new(0,4,0,0), BackgroundColor3=role("Sidebar"),BorderSizePixel=0,
         CanvasSize=UDim2.new(),AutomaticCanvasSize=Enum.AutomaticSize.Y,ScrollBarThickness=2})
     round(w,w._sidebar,8)
     list(w,w._sidebar,4)
     w._content = frame(w,w._body,0,true)
-    w._content.Size = UDim2.new(1,-190,1,-8)
-    w._content.Position = UDim2.new(0,180,0,0)
+    w._content.Size = UDim2.new(1,-62,1,-8)
+    w._content.Position = UDim2.new(0,56,0,0)
     w._restore = text(w,w.Gui,"Show " .. (options.Name or "JLXUI"), {
         Size=UDim2.new(0,150,0,30),Position=UDim2.new(0,10,0.5,-15),
         TextXAlignment=Enum.TextXAlignment.Center,BackgroundTransparency=0,
@@ -440,6 +500,18 @@ function Library:New(options)
         w.container.Position = UDim2.new(startPos.X.Scale,startPos.X.Offset+delta.X,
             startPos.Y.Scale,startPos.Y.Offset+delta.Y)
     end,function(input) dragStart=input.Position; startPos=w.container.Position end)
+    local resize=text(w,w.container,"↘  Resize",{Size=UDim2.new(0,88,0,20),Position=UDim2.new(1,-96,1,-23),
+        TextColor3=role("TextSub"),TextSize=10,TextXAlignment=Enum.TextXAlignment.Right},"TextButton")
+    local resizeStart,resizeWidth,resizeHeight,resizeScale
+    drag(w,resize,function(input)
+        local delta=input.Position-resizeStart
+        width=math.clamp(resizeWidth+delta.X/resizeScale,400,1400)
+        height=math.clamp(resizeHeight+delta.Y/resizeScale,250,1000)
+        w.container.Size=UDim2.new(0,width,0,height)
+        fit()
+    end,function(input)
+        resizeStart=input.Position; resizeWidth=width; resizeHeight=height; resizeScale=scale.Scale
+    end)
     connect(w,Input.InputChanged,function(input)
         local d = w._drag
         if d and not d.owner.Destroyed and (input == d.input or
@@ -465,7 +537,7 @@ function Library:New(options)
             return
         end
         if processed or Input:GetFocusedTextBox() then return end
-        if input.KeyCode == w.ToggleKey then w:SetVisible(not w.container.Visible); return end
+        if input.KeyCode == w.ToggleKey then w:SetVisible(not w._shown); return end
         for bind in pairs(w._binds) do
             if bind.Value ~= Enum.KeyCode.Unknown and input.KeyCode == bind.Value then
                 if bind._hold then
@@ -479,31 +551,58 @@ function Library:New(options)
     connect(w,w.Gui.Destroying,function() w:Destroy() end)
     self._windows[id], self._last = w, w
     if options.Configuration ~= false then w:_BuildConfiguration() end
+    w.container.GroupTransparency=1
+    animate(w,w.container,{GroupTransparency=0},0.2,"visibility")
     return w
 end
 function Window:SetVisible(visible)
     alive(self)
-    self.container.Visible = visible == true
-    self._restore.Visible = not self.container.Visible
+    self._shown = visible == true
+    self._restore.Visible = not self._shown
+    if self._shown then self.container.Visible=true end
+    animate(self,self.container,{GroupTransparency=self._shown and 0 or 1},0.18,"visibility",function()
+        if not self._shown then self.container.Visible=false end
+    end)
     self._drag=nil
     cancelCapture(self)
     releaseHolds(self)
 end
-function Window:ToggleUI() self:SetVisible(not self.container.Visible) end
+function Window:ToggleUI() self:SetVisible(not self._shown) end
 
+Library.Icons = {
+    Home="rbxassetid://7733960981", Eye="rbxassetid://7733774602",
+    Zap="rbxassetid://7734091286", Activity="rbxassetid://7733655755",
+    Swords="rbxassetid://10734975692", MapPin="rbxassetid://7733992789",
+    Layers="rbxassetid://7743868936", Settings="rbxassetid://7734058803",
+    Cloud="rbxassetid://7733746980",
+}
 function Window:Tab(title, icon)
     alive(self)
     local t = node(Tab,self,self)
     t._isTab, t.Name = true, tostring(title)
     self._tabs[t] = true
-    t._button = text(t,self._sidebar,title,{Size=UDim2.new(1,-8,0,34),Position=UDim2.new(),
+    t._button = text(t,self._sidebar,"",{Size=UDim2.new(0,36,0,38),Position=UDim2.new(),
         BackgroundColor3=role("Card"),BackgroundTransparency=1},"TextButton")
-    round(t,t._button,6)
-    if icon and icon ~= "" then
-        make(t,"ImageLabel",t._button,{Size=UDim2.new(0,16,0,16),Position=UDim2.new(0,8,0.5,-8),
-            BackgroundTransparency=1,Image=tostring(icon),ImageColor3=role("Text")})
-        t._button.Text = "       " .. tostring(title)
-    end
+    round(t,t._button,7)
+    local image=Library.Icons[icon] or icon or Library.Icons.Home
+    t._icon=make(t,"ImageLabel",t._button,{Size=UDim2.new(0,21,0,21),Position=UDim2.new(0.5,-10,0.5,-10),
+        BackgroundTransparency=1,Image=tostring(image),ImageColor3=role("Text"),ImageTransparency=0.4})
+    t._indicator=frame(t,t._button,24)
+    t._indicator.Size=UDim2.new(0,2,0,24); t._indicator.Position=UDim2.new(0,0,0.5,-12)
+    property(t,t._indicator,"BackgroundColor3",role("Accent"))
+    t._indicator.BackgroundTransparency=1
+    round(t,t._indicator,2)
+    t._hint=text(t,self.container,title,{Size=UDim2.new(0,150,0,26),Position=UDim2.new(0,54,0,42),
+        BackgroundTransparency=0,BackgroundColor3=role("Elevated"),ZIndex=20,Visible=false})
+    round(t,t._hint,5)
+    connect(t,t._button.MouseEnter,function()
+        t._hint.Visible=true
+        animate(t,t._icon,{ImageTransparency=0},0.12,"hover")
+    end)
+    connect(t,t._button.MouseLeave,function()
+        t._hint.Visible=false
+        animate(t,t._icon,{ImageTransparency=self._activeTab==t and 0 or 0.4},0.12,"hover")
+    end)
     t.container = make(t,"ScrollingFrame",self._content,{Size=UDim2.new(1,0,1,0),
         BackgroundTransparency=1,BorderSizePixel=0,CanvasSize=UDim2.new(),
         AutomaticCanvasSize=Enum.AutomaticSize.Y,ScrollBarThickness=3,
@@ -521,9 +620,14 @@ function Tab:Select()
     local w = self._window
     for tab in pairs(w._tabs) do
         tab.container.Visible = tab == self
-        tab._button.BackgroundTransparency = tab == self and 0 or 1
+        animate(tab,tab._button,{BackgroundTransparency=tab==self and 0 or 1},0.14,"selection")
+        animate(tab,tab._icon,{ImageTransparency=tab==self and 0 or 0.4},0.14,"hover")
+        animate(tab,tab._indicator,{BackgroundTransparency=tab==self and 0 or 1},0.14,"selection")
+        tab._hint.Visible=false
         property(tab,tab._button,"TextColor3",role(tab == self and "Text" or "TextSub"))
     end
+    self.container.Position=UDim2.new(0,0,0,7)
+    animate(self,self.container,{Position=UDim2.new()},0.16,"page")
     w._activeTab = self
     w._drag = nil
     cancelCapture(w)
@@ -548,26 +652,47 @@ function Section:Button(title, callback)
     connect(c,b.Activated,function() c:Press() end)
     return c
 end
-function Section:Toggle(title, default, flag, callback)
-    local c = valueControl(self,title,"Toggle",flag,callback)
-    c._title.Position=UDim2.new(0,34,0,0)
-    c._title.Size=UDim2.new(1,-44,1,0)
-    local box = frame(c,c.container,16)
-    box.Size=UDim2.new(0,16,0,16); box.Position=UDim2.new(0,10,0.5,-8)
-    round(c,box,4); stroke(c,box,role("Stroke"))
-    local check = text(c,box,"✓",{Size=UDim2.new(1,0,1,0),Position=UDim2.new(),TextSize=13,
-        TextXAlignment=Enum.TextXAlignment.Center,TextColor3=role("Bg")})
-    local hit = text(c,c.container,"",{Size=UDim2.new(1,0,1,0),Position=UDim2.new()},"TextButton")
-    c._set = function(control, value, silent)
+function Section:Toggle(title, default, flag, callback, key)
+    local c = valueControl(self,title,"Toggle",flag,callback,36)
+    c._title.Size=UDim2.new(1,-110,1,0)
+    local pill=frame(c,c.container,16)
+    pill.Size=UDim2.new(0,32,0,16); pill.Position=UDim2.new(1,-44,0.5,-8)
+    pill.BackgroundTransparency=0
+    round(c,pill,8)
+    local knob=frame(c,pill,12)
+    knob.Size=UDim2.new(0,12,0,12); knob.Position=UDim2.new(0,2,0.5,-6)
+    knob.BackgroundTransparency=0
+    round(c,knob,6)
+    local hit=text(c,c.container,"",{Size=UDim2.new(1,-90,1,0),Position=UDim2.new()},"TextButton")
+    local switchHit=text(c,c.container,"",{Size=UDim2.new(0,46,1,0),Position=UDim2.new(1,-46,0,0)},"TextButton")
+    c._hit=hit
+    c._set=function(control,value,silent)
         assert(type(value)=="boolean","JLXUI: Toggle:Set expects a boolean")
-        property(control,box,"BackgroundColor3",role(value and "Accent" or "Elevated"))
-        box.BackgroundTransparency=value and 0 or 0.6
-        check.Visible=value
+        local seconds=silent and 0 or 0.14
+        animate(control,pill,{BackgroundColor3=role(value and "Accent" or "Elevated")},seconds,"switch")
+        animate(control,knob,{Position=value and UDim2.new(1,-14,0.5,-6) or UDim2.new(0,2,0.5,-6),
+            BackgroundColor3=role(value and "Bg" or "TextSub")},seconds,"switch")
         publish(control,value,silent)
     end
-    c:Set(default == true,true)
-    connect(c,hit.Activated,function() c:Set(not c.Value) end)
+    c:Set(default==true,true)
+    local function flip() c:Set(not c.Value) end
+    connect(c,hit.Activated,flip)
+    connect(c,switchHit.Activated,flip)
+    local bind=self:Bind(title .. " key",key or Enum.KeyCode.Unknown,false,flag and (flag .. "__Keybind") or nil,flip)
+    self._children[bind]=nil; c._children[bind]=true; bind._parent=c
+    bind.container.Parent=c.container; bind.container.Visible=false
+    bind._button.Parent=c.container
+    bind._button.Size=UDim2.new(0,46,0,24); bind._button.Position=UDim2.new(1,-96,0.5,-12)
+    bind._button.BackgroundTransparency=1
+    bind._button.TextSize=9
+    c._inlineBind=bind
     return c
+end
+function Control:Keybind(key)
+    alive(self)
+    assert(self._inlineBind,"JLXUI: this control has no inline keybind")
+    self._inlineBind:Set(key)
+    return self
 end
 function Section:SubToggle(title, default, flag, callback)
     local c = self:Toggle(title,default,flag,callback)
@@ -597,7 +722,9 @@ function Section:Slider(title, default, maximum, minimum, increment, flag, callb
             value=math.clamp(minimum+math.floor((value-minimum)/increment+0.5)*increment,minimum,maximum)
         end
         local ratio=(value-minimum)/(maximum-minimum)
-        fill.Size=UDim2.new(ratio,0,1,0); knob.Position=UDim2.new(ratio,0,0.5,0)
+        local duration=(silent or (control._window._drag and control._window._drag.owner==control)) and 0 or 0.12
+        animate(control,fill,{Size=UDim2.new(ratio,0,1,0)},duration,"value")
+        animate(control,knob,{Position=UDim2.new(ratio,0,0.5,0)},duration,"value")
         if not box:IsFocused() then box.Text=display(value) end
         publish(control,value,silent)
     end
@@ -629,19 +756,40 @@ local function unique(options)
 end
 local function dropdown(section,title,options,default,flag,callback,multi)
     options=unique(options)
-    local c=valueControl(section,title,multi and "MultiDropdown" or "Dropdown",flag,callback)
+    local c=valueControl(section,title,multi and "MultiDropdown" or "Dropdown",flag,callback,36)
     c.container.AutomaticSize=Enum.AutomaticSize.Y
     c.container.Size=UDim2.new(1,0,0,0)
     c._title:Destroy(); c._instances[c._title]=nil; c._themeBindings[c._title]=nil
     list(c,c.container,3)
-    local head=text(c,c.container,"",{Size=UDim2.new(1,0,0,32),Position=UDim2.new()},"TextButton")
+    local head=text(c,c.container,"",{Size=UDim2.new(1,0,0,36),Position=UDim2.new()},"TextButton")
     c._title=text(c,head,title,{Size=UDim2.new(1,-155,1,0)})
-    local shown=text(c,head,"None  ▾",{Size=UDim2.new(0,135,1,0),Position=UDim2.new(1,-145,0,0),
-        TextXAlignment=Enum.TextXAlignment.Right,TextColor3=role("TextSub")})
-    local menu=autoFrame(c,c.container); menu.LayoutOrder=1; menu.Visible=false
-    c._options,c._multi,c._menu=options,multi,menu
+    local valueBox=smallButton(c,head,"",138)
+    local shown=text(c,valueBox,"None",{Size=UDim2.new(1,-30,1,0),Position=UDim2.new(0,8,0,0),
+        TextColor3=role("TextSub"),TextSize=11})
+    local arrow=text(c,valueBox,"›",{Size=UDim2.new(0,14,1,0),Position=UDim2.new(1,-20,0,0),
+        Rotation=90,TextSize=17,TextXAlignment=Enum.TextXAlignment.Center})
+    local viewport=frame(c,c.container,0,true)
+    viewport.LayoutOrder=1; viewport.ClipsDescendants=true; viewport.Visible=false
+    local menu=make(c,"ScrollingFrame",viewport,{Size=UDim2.new(1,0,1,0),CanvasSize=UDim2.new(),
+        AutomaticCanvasSize=Enum.AutomaticSize.Y,ScrollBarThickness=2,BackgroundTransparency=1,BorderSizePixel=0})
+    list(c,menu,2)
+    c._options,c._multi,c._menu=options,multi,viewport
+    c._open=false
+    c._resizeMenu=function(control)
+        local height=math.min(180,#control._options*28+4)
+        animate(control,viewport,{Size=UDim2.new(1,0,0,control._open and height or 0)},0.18,"expand",function()
+            if not control._open then viewport.Visible=false end
+        end)
+    end
+    c._toggleMenu=function(control,open)
+        if open==nil then open=not control._open end
+        control._open=open==true
+        if control._open then viewport.Visible=true end
+        animate(control,arrow,{Rotation=control._open and 270 or 90},0.16,"arrow")
+        control:_resizeMenu()
+    end
     local function paint()
-        shown.Text=(multi and (#c.Value>0 and table.concat(c.Value,", ") or "None") or (c.Value~="" and c.Value or "None")) .. "  ▾"
+        shown.Text=(multi and (#c.Value>0 and table.concat(c.Value,", ") or "None") or (c.Value~="" and c.Value or "None"))
         for option,button in pairs(c._optionButtons or {}) do
             local selected=multi and table.find(c.Value,option)~=nil or (not multi and c.Value==option)
             button.Text=(selected and "✓  " or "    ") .. option
@@ -677,16 +825,18 @@ local function dropdown(section,title,options,default,flag,callback,multi)
                     if at then table.remove(selected,at) else selected[#selected+1]=option end
                     control:Set(selected)
                 else
-                    menu.Visible=false
+                    control:ToggleDropdown(false)
                     control:Set(option)
                 end
             end)
         end
         paint()
+        if control._open then control:_resizeMenu() end
     end
     c:Set(default or (multi and {} or ""),true)
     c:_rebuild()
-    connect(c,head.Activated,function() menu.Visible=not menu.Visible end)
+    connect(c,head.Activated,function() c:ToggleDropdown() end)
+    connect(c,valueBox.Activated,function() c:ToggleDropdown() end)
     return c
 end
 function Section:Dropdown(title,options,default,flag,callback)
@@ -712,9 +862,8 @@ function Control:Refresh(options, deletecurrent)
 end
 function Control:ToggleDropdown(open)
     alive(self)
-    assert(self._menu,"JLXUI: not a dropdown")
-    if open==nil then open=not self._menu.Visible end
-    self._menu.Visible=open==true
+    assert(self._toggleMenu,"JLXUI: not a dropdown")
+    self:_toggleMenu(open)
 end
 
 function Section:Textbox(title,disappear,callback)
@@ -746,7 +895,7 @@ function Section:Bind(title,default,hold,flag,callback)
         assert(typeof(value)=="EnumItem" and value.EnumType==Enum.KeyCode,"JLXUI: Bind:Set expects Enum.KeyCode")
         if control._held then control._held=false; call(control._callback,false) end
         if control.Destroyed then return end
-        control._button.Text=value.Name
+        control._button.Text=value==Enum.KeyCode.Unknown and "NONE" or value.Name
         publish(control,value,true)
     end
     c:Set(default or Enum.KeyCode.Unknown,true)
@@ -830,14 +979,27 @@ function Section:CollapsibleGroup(title, expanded)
     round(s,head,s._window.Theme.CardRadius); stroke(s,head,role("StrokeDim"))
     s._title=text(s,head,title,{Position=UDim2.new(0,28,0,0),Size=UDim2.new(1,-38,1,0)})
     local arrow=text(s,head,"▸",{Size=UDim2.new(0,18,1,0),Position=UDim2.new(0,8,0,0)})
-    s.content=autoFrame(s,s.container); s.content.LayoutOrder=1
+    s._header=head
+    s._arrow=arrow
+    local viewport=frame(s,s.container,0,true); viewport.LayoutOrder=1; viewport.ClipsDescendants=true
+    s.content=autoFrame(s,viewport)
+    local contentLayout=s.content:FindFirstChildOfClass("UIListLayout")
     make(s,"UIPadding",s.content,{PaddingLeft=UDim.new(0,12),PaddingRight=UDim.new(0,2)})
     s._expand=function(group,value)
         if value==nil then value=not group.Expanded end
         group.Expanded=value==true
-        group.content.Visible=group.Expanded
-        arrow.Text=group.Expanded and "▾" or "▸"
+        group.content.Visible=true
+        animate(group,arrow,{Rotation=group.Expanded and 90 or 0},0.16,"arrow")
+        if group._extraArrow and not group.ToggleControl.Destroyed then
+            animate(group.ToggleControl,group._extraArrow,{Rotation=group.Expanded and 90 or 0},0.16,"arrow")
+        end
+        animate(group,viewport,{Size=UDim2.new(1,0,0,group.Expanded and contentLayout.AbsoluteContentSize.Y or 0)},0.2,"expand",function()
+            if not group.Expanded then group.content.Visible=false end
+        end)
     end
+    connect(s,contentLayout:GetPropertyChangedSignal("AbsoluteContentSize"),function()
+        if s.Expanded then animate(s,viewport,{Size=UDim2.new(1,0,0,contentLayout.AbsoluteContentSize.Y)},0.12,"expand") end
+    end)
     s:Expand(expanded==true)
     connect(s,s.container.Destroying,function() s:Destroy() end)
     connect(s,head.Activated,function() s:Expand() end)
@@ -848,9 +1010,18 @@ function Section:Expand(value)
     assert(self._expand,"JLXUI: this section is not collapsible")
     self:_expand(value)
 end
-function Section:CollapsibleToggle(title,default,flag,callback)
+function Section:CollapsibleToggle(title,default,flag,callback,key)
     local group=self:CollapsibleGroup(title,false)
-    group.ToggleControl=group:Toggle("Enabled",default,flag,callback)
+    group._header.Visible=false
+    local toggle=group:Toggle(title,default,flag,callback,key)
+    group.ToggleControl=toggle
+    toggle.container.Parent=group.container; toggle.container.LayoutOrder=0
+    toggle._title.Position=UDim2.new(0,28,0,0); toggle._title.Size=UDim2.new(1,-132,1,0)
+    toggle._hit.Visible=false
+    group._extraArrow=text(toggle,toggle.container,"▸",{Size=UDim2.new(0,16,1,0),Position=UDim2.new(0,9,0,0)})
+    local expandHit=text(toggle,toggle.container,"",{Size=UDim2.new(1,-100,1,0),Position=UDim2.new()},"TextButton")
+    connect(toggle,expandHit.Activated,function() group:Expand() end)
+    connect(toggle,toggle.container.Destroying,function() if not group.Destroyed then group:Destroy() end end)
     return group
 end
 
@@ -878,8 +1049,12 @@ function Window:Notification(title,message,duration)
         if at then table.remove(self._notifications,at) end
         baseDestroy(notice)
     end
+    n._dismiss=function(notice)
+        if notice._timer then pcall(task.cancel,notice._timer); notice._timer=nil end
+        animate(notice,notice.container,{GroupTransparency=1},0.16,"entrance",function() notice:Destroy() end)
+    end
     self._notificationSequence=self._notificationSequence+1
-    n.container=frame(n,self._notificationHost,80)
+    n.container=frame(n,self._notificationHost,80,nil,"CanvasGroup")
     n.container.Size=UDim2.new(1,0,0,80)
     make(n,"UISizeConstraint",n.container,{MaxSize=Vector2.new(320,80)})
     n.container.LayoutOrder=self._notificationSequence
@@ -889,12 +1064,14 @@ function Window:Notification(title,message,duration)
     text(n,n.container,message,{Size=UDim2.new(1,-20,0,44),Position=UDim2.new(0,10,0,28),
         TextWrapped=true,TextTruncate=Enum.TextTruncate.None,TextYAlignment=Enum.TextYAlignment.Top,TextColor3=role("TextSub")})
     local close=smallButton(n,n.container,"×",24); close.Position=UDim2.new(1,-30,0,4)
-    connect(n,close.Activated,function() n:Destroy() end)
+    connect(n,close.Activated,function() n:Dismiss() end)
     self._notifications[#self._notifications+1]=n
+    n.container.GroupTransparency=1
+    animate(n,n.container,{GroupTransparency=0},0.18,"entrance")
     if duration>0 then
         n._timer=task.delay(duration,function()
             n._timer=nil
-            if not n.Destroyed then n:Destroy() end
+            if not n.Destroyed then n:Dismiss() end
         end)
     end
     return n
@@ -906,7 +1083,6 @@ end
 function Library:Destroy()
     while next(self._windows) do select(2,next(self._windows)):Destroy() end
 end
-
 local THEME_COLORS={"Accent","Bg","Sidebar","Card","CardHover","Elevated","Stroke","StrokeDim","Text","TextSub","Muted"}
 function Window:_SyncConfiguration()
     local controls=self._configControls
@@ -921,10 +1097,13 @@ function Window:_SyncConfiguration()
     set("Transparency",self.BackgroundTransparency)
     set("Notifications",self.NotificationsEnabled)
     set("Duration",self.NotificationDuration)
+    set("Animations",self.Animations)
     for _,key in ipairs(THEME_COLORS) do set(key,self.Theme[key]) end
 end
 function Window:_ApplyTheme()
     local function apply(owner)
+        cancelAnimations(owner,true)
+        if owner.Destroyed then return end
         for obj,bindings in pairs(owner._themeBindings) do
             for prop,key in pairs(bindings) do obj[prop]=self.Theme[key] end
         end
@@ -953,6 +1132,20 @@ function Window:SetScale(value)
     self.UserScale=math.clamp(value,0.65,1.25)
     self._fit()
 end
+function Window:SetAnimations(enabled)
+    alive(self)
+    self.Animations=enabled==true
+    if not self.Animations then
+        local function settle(owner)
+            cancelAnimations(owner,true)
+            if owner.Destroyed then return end
+            local children={}
+            for child in pairs(owner._children) do children[#children+1]=child end
+            for _,child in ipairs(children) do if not child.Destroyed then settle(child) end end
+        end
+        settle(self)
+    end
+end
 function Window:SetToggleKey(key)
     alive(self)
     assert(typeof(key)=="EnumItem" and key.EnumType==Enum.KeyCode,"JLXUI: expected Enum.KeyCode")
@@ -977,7 +1170,7 @@ function Window:ListConfigs()
     return names
 end
 function Window:_BuildConfiguration()
-    local tab=self:Tab("Configuration")
+    local tab=self:Tab("Configuration","Settings")
     self._configTab=tab
     tab._button.LayoutOrder=1000000
     local controls={}
@@ -1044,6 +1237,7 @@ function Window:_BuildConfiguration()
         self:SetToggleKey(value)
     end
     settings:Label("Mobile: minimize, then tap Show to restore")
+    controls.Animations=settings:Toggle("UI animations",self.Animations,nil,function(value) self:SetAnimations(value) end)
     controls.Notifications=settings:Toggle("Notifications",true,nil,function(value) self.NotificationsEnabled=value end)
     controls.Duration=settings:Slider("Notification seconds",5,15,1,0.5,nil,function(value) self.NotificationDuration=value end)
     settings:Button("Hide UI",function() self:SetVisible(false) end)
@@ -1066,7 +1260,7 @@ function Window:ExportConfig()
     end
     return Http:JSONEncode({version=1,values=values,ui={theme=self.ThemeName,colors=colors,
         toggleKey=self.ToggleKey.Name,scale=self.UserScale,transparency=self.BackgroundTransparency,
-        notifications=self.NotificationsEnabled,duration=self.NotificationDuration}})
+        notifications=self.NotificationsEnabled,duration=self.NotificationDuration,animations=self.Animations}})
 end
 function Window:ImportConfig(json, silent)
     alive(self)
@@ -1100,6 +1294,10 @@ function Window:ImportConfig(json, silent)
             if ui.duration then
                 assert(finite(ui.duration),"invalid duration")
                 self.NotificationDuration=math.clamp(ui.duration,1,15)
+            end
+            if ui.animations~=nil then
+                assert(type(ui.animations)=="boolean","invalid animation preference")
+                self:SetAnimations(ui.animations)
             end
             self:_ApplyTheme()
         end)
@@ -1138,10 +1336,13 @@ function Window:LoadConfig(name,silent)
     return self:ImportConfig(self._storage.Read(configPath(self,name)),silent)
 end
 function Window:GetDebugStats()
-    local stats={Objects=0,Connections=0,Instances=0,Timers=0,Bindings=0,Flags=0}
+    local stats={Objects=0,Connections=0,Instances=0,Timers=0,Bindings=0,Flags=0,Animations=0}
     if self.Destroyed then return stats end
     local function count(n)
         stats.Objects=stats.Objects+1
+        for _,slots in pairs(n._animations) do
+            for _ in pairs(slots) do stats.Animations=stats.Animations+1; stats.Connections=stats.Connections+1 end
+        end
         for c in pairs(n._connections) do if c.Connected then stats.Connections=stats.Connections+1 end end
         for _ in pairs(n._instances) do stats.Instances=stats.Instances+1 end
         if n._timer then stats.Timers=stats.Timers+1 end
@@ -1153,7 +1354,6 @@ function Window:GetDebugStats()
     return stats
 end
 
--- Friendly aliases use the SAME argument order as the documented colon API.
 Window.CreateTab, Window.createTab = Window.Tab, Window.Tab
 Tab.CreateSection, Tab.createSection = Tab.Section, Tab.Section
 Section.CreateSection, Section.createSection = Section.Section, Section.Section
