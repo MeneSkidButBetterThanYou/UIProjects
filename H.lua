@@ -4,7 +4,7 @@ local Http = game:GetService("HttpService")
 local TweenService = game:GetService("TweenService")
 local RunService = game:GetService("RunService")
 
-local Library = {Version = "1.5.5", _windows = {}, _sessionFiles = {}}
+local Library = {Version = "1.5.6", _windows = {}, _sessionFiles = {}}
 local Base, Window, Tab, Section, Control = {}, {}, {}, {}, {}
 Base.__index = Base
 for _, class in ipairs({Window, Tab, Section, Control}) do
@@ -573,16 +573,16 @@ function Library:New(options)
     w._body = frame(w,w.container,height-68,true)
     w._body.Size = UDim2.new(1,0,1,-68)
     w._body.Position = UDim2.new(0,0,0,44)
-    w._sidebar = make(w,"ScrollingFrame",w._body,{Size=UDim2.new(0,44,1,-12),
-        Position=UDim2.new(0,4,0,4), BackgroundColor3=role("Sidebar"),BorderSizePixel=0,
+    w._sidebarRail=make(w,"Frame",w.container,{Name="SidebarRail",Size=UDim2.new(0,52,1,-39),Position=UDim2.new(0,0,0,39),BackgroundColor3=role("Sidebar"),BorderSizePixel=0})
+    w._sidebar = make(w,"ScrollingFrame",w._sidebarRail,{Size=UDim2.new(1,-8,1,-8),
+        Position=UDim2.new(0,4,0,4), BackgroundTransparency=1,BackgroundColor3=role("Sidebar"),BorderSizePixel=0,
         CanvasSize=UDim2.new(),AutomaticCanvasSize=Enum.AutomaticSize.Y,ScrollBarThickness=0,
         ScrollBarImageTransparency=1})
-    round(w,w._sidebar,8)
     list(w,w._sidebar,4)
     w._content = frame(w,w._body,0,true)
     w._content.Size = UDim2.new(1,-62,1,-12)
     w._content.Position = UDim2.new(0,56,0,4)
-    w._contentLine = make(w,"Frame",w._body,{Size=UDim2.new(0,1,1,-12),Position=UDim2.new(0,52,0,4),
+    w._contentLine = make(w,"Frame",w.container,{Size=UDim2.new(0,1,1,-39),Position=UDim2.new(0,52,0,39),
         BackgroundColor3=role("StrokeDim"),BackgroundTransparency=0,BorderSizePixel=0})
     w._restore = text(w,w.Gui,"Show " .. (options.Name or "JLXUI"), {
         Size=UDim2.new(0,150,0,30),Position=UDim2.new(0,10,0.5,-15),
