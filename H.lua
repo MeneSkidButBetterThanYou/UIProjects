@@ -4,7 +4,7 @@ local Http = game:GetService("HttpService")
 local TweenService = game:GetService("TweenService")
 local RunService = game:GetService("RunService")
 
-local Library = {Version = "1.5.6", _windows = {}, _sessionFiles = {}}
+local Library = {Version = "1.5.7", _windows = {}, _sessionFiles = {}}
 local Base, Window, Tab, Section, Control = {}, {}, {}, {}, {}
 Base.__index = Base
 for _, class in ipairs({Window, Tab, Section, Control}) do
@@ -500,6 +500,10 @@ function Library:New(options)
     w.ThemeName = type(options.Theme) == "string" and options.Theme or "Default"
     assert(THEMES[w.ThemeName], "JLXUI: unknown theme")
     for k,v in pairs(THEMES[w.ThemeName]) do w.Theme[k]=v end
+    if not THEMES[w.ThemeName].CardHover then
+        local base,ink=w.Theme.Elevated,w.Theme.Text
+        w.Theme.CardHover=Color3.new(base.R+(ink.R-base.R)*0.08,base.G+(ink.G-base.G)*0.08,base.B+(ink.B-base.B)*0.08)
+    end
     if type(options.Theme)=="table" then for k,v in pairs(options.Theme) do w.Theme[k]=v end end
     w.UserScale, w.BackgroundTransparency = 1, 0
     w.Animations = options.Animations ~= false
@@ -733,6 +737,11 @@ function Window:SetAcrylic(enabled)
     end
     if self._acrylicBlur then self._acrylicBlur.Enabled=self.Acrylic and self._shown end
     self.container.BackgroundTransparency=self.Acrylic and math.max(0.22,self.BackgroundTransparency or 0) or (self.BackgroundTransparency or 0)
+    if self._sidebarRail then self._sidebarRail.BackgroundTransparency=self.Acrylic and 0.8 or 0 end
+    for tab in pairs(self._tabs) do
+        stopAnimation(tab,tab._button,"selection",false)
+        tab._button.BackgroundTransparency=tab==self._activeTab and (self.Acrylic and 0.7 or 0) or 1
+    end
     if self._configControls and self._configControls.Acrylic then self._configControls.Acrylic:Set(self.Acrylic,true) end
 end
 
@@ -952,7 +961,7 @@ function Tab:Select()
     local w = self._window
     for tab in pairs(w._tabs) do
         if tab ~= self then tab.container.Visible = false end
-        animate(tab,tab._button,{BackgroundTransparency=tab==self and 0 or 1},0.20,"selection")
+        animate(tab,tab._button,{BackgroundTransparency=tab==self and (w.Acrylic and 0.7 or 0) or 1},0.20,"selection")
         animate(tab,tab._icon,{ImageTransparency=tab==self and 0 or 0.4},0.20,"hover")
         animate(tab,tab._indicator,{BackgroundTransparency=tab==self and 0 or 1},0.20,"selection")
         tab._hint.Visible=false
@@ -1609,12 +1618,17 @@ function Window:_ApplyTheme()
     end
     apply(self)
     self:_SyncConfiguration()
+    self:SetAcrylic(self.Acrylic)
 end
 function Window:SetTheme(name)
     alive(self)
     assert(THEMES[name],"JLXUI: unknown theme: " .. tostring(name))
     for key,value in pairs(DEFAULT) do self.Theme[key]=value end
     for key,value in pairs(THEMES[name]) do self.Theme[key]=value end
+    if not THEMES[name].CardHover then
+        local base,ink=self.Theme.Elevated,self.Theme.Text
+        self.Theme.CardHover=Color3.new(base.R+(ink.R-base.R)*0.08,base.G+(ink.G-base.G)*0.08,base.B+(ink.B-base.B)*0.08)
+    end
     self.ThemeName=name
     self:_ApplyTheme()
 end
