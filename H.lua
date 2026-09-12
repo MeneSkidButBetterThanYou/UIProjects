@@ -4,7 +4,7 @@ local Http = game:GetService("HttpService")
 local TweenService = game:GetService("TweenService")
 local RunService = game:GetService("RunService")
 
-local Library = {Version = "1.5.4", _windows = {}, _sessionFiles = {}}
+local Library = {Version = "1.5.5", _windows = {}, _sessionFiles = {}}
 local Base, Window, Tab, Section, Control = {}, {}, {}, {}, {}
 Base.__index = Base
 for _, class in ipairs({Window, Tab, Section, Control}) do
@@ -781,11 +781,11 @@ function Window:Tab(title, icon)
     local t = node(Tab,self,self)
     t._isTab, t.Name = true, tostring(title)
     self._tabs[t] = true
-    t._button = text(t,self._sidebar,"",{Size=UDim2.new(0,36,0,38),Position=UDim2.new(),
+    t._button = text(t,self._sidebar,"",{Size=UDim2.new(1,0,0,38),Position=UDim2.new(),
         BackgroundColor3=role("Card"),BackgroundTransparency=1},"TextButton")
     round(t,t._button,7)
     local image=resolveIcon(icon)
-    t._icon=make(t,"ImageLabel",t._button,{Size=UDim2.new(0,21,0,21),Position=UDim2.new(0.5,-10,0.5,-10),
+    t._icon=make(t,"ImageLabel",t._button,{Size=UDim2.new(0,21,0,21),AnchorPoint=Vector2.new(0.5,0.5),Position=UDim2.new(0.5,0,0.5,0),
         BackgroundTransparency=1,Image=tostring(image),ImageColor3=role("Text"),ImageTransparency=0.4})
     t._indicator=frame(t,t._button,24)
     t._indicator.Size=UDim2.new(0,2,0,24); t._indicator.Position=UDim2.new(0,0,0.5,-12)
